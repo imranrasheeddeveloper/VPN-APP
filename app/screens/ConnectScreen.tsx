@@ -1,42 +1,43 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import * as Haptics from 'expo-haptics'
+import { LinearGradient } from 'expo-linear-gradient'
+import { router, useLocalSearchParams } from 'expo-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  BackHandler,
   DeviceEventEmitter,
+  Platform,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import {
-  activeSessions,
-  connectSession,
-  disconnectSession,
-} from '../../src/services/sessions';
+} from 'react-native'
 
 import {
   connectVPN,
   disconnectVPN,
   prepareVPN,
-} from '../../src/native/WireGuard';
-
-import { colors } from '../../src/theme';
+} from '../../src/native/WireGuard'
+import {
+  activeSessions,
+  connectSession,
+  disconnectSession,
+} from '../../src/services/sessions'
+import { colors } from '../../src/theme'
 
 type Server = {
   id: number
   name: string
   country: string
+  isPremium?: boolean
+  tier?: string
 }
 
 export default function ConnectScreen() {
-  // ✅ READ PARAMS AT TOP LEVEL
-  const params = useLocalSearchParams<{
-    server?: string
-    plan?: string
-  }>()
-
-  // ✅ SAFE SERVER PARSING
+  const params = useLocalSearchParams<{ server?: string }>()
   const server: Server | null = useMemo(() => {
     try {
       return params.server ? JSON.parse(params.server) : null
@@ -50,16 +51,58 @@ export default function ConnectScreen() {
   const [checking, setChecking] = useState(true)
   const [sessionId, setSessionId] = useState<number | null>(null)
 
-  // ✅ CHECK EXISTING SESSION ON LOAD
+  /* ================= ANIMATIONS ================= */
+
+  const pulse = useRef(new Animated.Value(0)).current
+  const glow = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 1400,
+          useNativeDriver: true,
+        }),
+      ])
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [pulse])
+
+  useEffect(() => {
+    Animated.timing(glow, {
+      toValue: connected ? 1 : 0,
+      duration: 350,
+      useNativeDriver: true,
+    }).start()
+  }, [connected, glow])
+
+  /* ================= NAVIGATION ================= */
+
+  const changeServer = () => {
+    router.push('/screens/ServersScreen')
+  }
+
+  useEffect(() => {
+    if (!server) router.replace('/screens/ServersScreen')
+  }, [server])
+
+  /* ================= CHECK EXISTING SESSION ================= */
+
   useEffect(() => {
     const checkSession = async () => {
       try {
         const res = await activeSessions()
         const list = res?.data || res || []
-
         if (list.length > 0) {
           setConnected(true)
-          setSessionId(list[0].id) // 🔥 IMPORTANT
+          setSessionId(list[0].id)
         }
       } catch (e) {
         console.log('❌ activeSessions error', e)
@@ -71,67 +114,119 @@ export default function ConnectScreen() {
     checkSession()
   }, [])
 
-  
+  /* ================= VPN STATUS LISTENER (ONLY ONE) ================= */
 
-// Inside your ConnectScreen component...
-useEffect(() => {
-  // Listen for the "shout" from Android Kotlin
-  const subscription = DeviceEventEmitter.addListener('VPN_STATUS_CHANGE', (status) => {
-    console.log("VPN State changed to:", status);
-    
-    if (status === 'UP') {
-      setConnected(true);
-      setLoading(false);
-    } else if (status === 'DOWN') {
-      setConnected(false);
-      setLoading(false);
-    }
-  });
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      'VPN_STATUS_CHANGE',
+      (status) => {
+        console.log('🔔 VPN STATUS:', status)
 
-  // Cleanup the listener when user leaves the screen
-  return () => subscription.remove();
-}, []);
+        if (status === 'UP') {
+          setConnected(true)
+          setLoading(false)
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success
+          ).catch(() => {})
+        }
 
-  // ❌ NO SERVER → SAFE EXIT
-  if (!server) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.error}>Invalid server data</Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>← Go back</Text>
-        </TouchableOpacity>
-      </View>
+        if (status === 'DOWN') {
+          setConnected(false)
+          setLoading(false)
+          setSessionId(null)
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Warning
+          ).catch(() => {})
+        }
+      }
     )
-  }
 
-  // 🔌 CONNECT (BACKEND + NATIVE WIREGUARD)
-  const onConnect = async () => {
-  setLoading(true);
-  try {
-    const isReady = await prepareVPN();
-    if (!isReady) {
-        setLoading(false);
-        return; 
+    return () => subscription.remove()
+  }, [])
+
+  /* ================= ANDROID BACK HANDLING ================= */
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (loading) return true
+
+      if (connected) {
+        Alert.alert(
+          'Disconnect?',
+          'You are connected. Disconnect before leaving?',
+          [
+            { text: 'Stay', style: 'cancel' },
+            {
+              text: 'Disconnect',
+              style: 'destructive',
+              onPress: onDisconnect,
+            },
+          ]
+        )
+        return true
+      }
+
+      changeServer()
+      return true
     }
 
-    const res = await connectSession(server.id);
-    
-    // Safety Timeout: If no status change in 10 seconds, stop loading
-    setTimeout(() => {
-        setLoading(current => {
-            if (current) Alert.alert("Connection Timeout", "Please try again.");
-            return false;
-        });
-    }, 10000);
+    const sub = BackHandler.addEventListener(
+      'hardwareBackPress',
+      onBackPress
+    )
+    return () => sub.remove()
+  }, [connected, loading, sessionId])
 
-    await connectVPN(res.config);
-  } catch (e: any) {
-    setLoading(false);
-    Alert.alert('Error', e.message);
+  /* ================= CONNECT ================= */
+
+  const onConnect = async () => {
+    if (!server) return
+
+    setLoading(true)
+    Haptics.impactAsync(
+      Haptics.ImpactFeedbackStyle.Medium
+    ).catch(() => {})
+
+    let timeout: ReturnType<typeof setTimeout> | null = null
+
+    try {
+      const isReady = await prepareVPN()
+      if (!isReady) {
+        setLoading(false)
+        return
+      }
+
+      const res = await connectSession(server.id)
+
+      // ✅ SAVE SESSION ID (CRITICAL)
+      setSessionId(res.id)
+
+      timeout = setTimeout(() => {
+        setLoading((current) => {
+          if (current) {
+            Alert.alert('Connection Timeout', 'Please try again.')
+          }
+          return false
+        })
+      }, 10000)
+
+      await connectVPN(res.config)
+    } catch (e: any) {
+      setLoading(false)
+      Alert.alert(
+        'Error',
+        e?.response?.data?.message ||
+          e?.message ||
+          'Unable to connect'
+      )
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
   }
-};
 
-  // 🔌 DISCONNECT (NATIVE + BACKEND)
+
+  /* ================= DISCONNECT ================= */
+
   const onDisconnect = async () => {
     if (!sessionId) {
       Alert.alert('Error', 'No active session found')
@@ -139,11 +234,12 @@ useEffect(() => {
     }
 
     setLoading(true)
-    try {
-      // 1️⃣ DISCONNECT NATIVE VPN
-      await disconnectVPN()
+    Haptics.impactAsync(
+      Haptics.ImpactFeedbackStyle.Light
+    ).catch(() => {})
 
-      // 2️⃣ CLEAN BACKEND SESSION
+    try {
+      await disconnectVPN()
       await disconnectSession(sessionId)
 
       setConnected(false)
@@ -153,37 +249,132 @@ useEffect(() => {
         'Disconnect failed',
         e?.response?.data?.message ||
           e?.message ||
-          'Unable to disconnect',
+          'Unable to disconnect'
       )
     } finally {
       setLoading(false)
     }
   }
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{server.name}</Text>
-      <Text style={styles.country}>{server.country}</Text>
+  /* ================= RENDER ================= */
 
-      <View style={[styles.ring, connected && styles.activeRing]}>
-        {checking ? (
-          <ActivityIndicator color={colors.primary} />
-        ) : (
-          <Text style={styles.status}>
-            {connected ? 'CONNECTED' : 'DISCONNECTED'}
-          </Text>
-        )}
+  if (!server) {
+    return (
+      <LinearGradient
+        colors={['#050712', '#070B1D', '#0A1030']}
+        style={styles.container}
+      >
+        <ActivityIndicator color={colors.primary} />
+        <Text style={styles.hint}>Loading best server…</Text>
+      </LinearGradient>
+    )
+  }
+
+  const scale = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.06],
+  })
+  const pulseOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.25, 0.55],
+  })
+  const glowScale = glow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.12],
+  })
+
+  return (
+    <LinearGradient
+      colors={['#050712', '#070B1D', '#0A1030']}
+      style={styles.container}
+    >
+      {/* TOP BAR */}
+      <View style={styles.topBar}>
+        <Pressable onPress={changeServer} style={styles.topPill}>
+          <Text style={styles.topPillText}>Change Server</Text>
+        </Pressable>
+
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Pressable
+            onPress={() => router.push('/screens/UpgradeScreen')}
+            style={[styles.topPill, styles.premiumPill]}
+          >
+            <Text
+              style={[
+                styles.topPillText,
+                { color: '#0B1224' },
+              ]}
+            >
+              Premium
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push('/screens/LoginScreen')}
+            style={styles.iconBtn}
+          >
+            <Text style={styles.iconBtnText}>👤</Text>
+          </Pressable>
+        </View>
       </View>
 
+      {/* HEADER */}
+      <View style={styles.header}>
+        <Text style={styles.title}>{server.name}</Text>
+        <Text style={styles.country}>{server.country}</Text>
+      </View>
+
+      {/* CORE */}
+      <View style={styles.center}>
+        <Animated.View
+          style={[
+            styles.pulseRing,
+            {
+              transform: [{ scale }, { scale: glowScale }],
+              opacity: pulseOpacity,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.coreRing,
+            connected && styles.coreRingActive,
+          ]}
+        >
+          {checking ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <>
+              <Text
+                style={[
+                  styles.status,
+                  connected && styles.statusActive,
+                ]}
+              >
+                {connected ? 'SECURE' : 'OFFLINE'}
+              </Text>
+              <Text style={styles.subStatus}>
+                {connected
+                  ? 'Tunnel established'
+                  : 'Tap to connect'}
+              </Text>
+            </>
+          )}
+        </View>
+      </View>
+
+      {/* ACTION */}
       <TouchableOpacity
         disabled={loading || checking}
+        activeOpacity={0.85}
         style={[
-          styles.button,
-          connected ? styles.disconnect : styles.connect,
+          styles.actionBtn,
+          connected ? styles.btnDisconnect : styles.btnConnect,
+          (loading || checking) && { opacity: 0.75 },
         ]}
         onPress={connected ? onDisconnect : onConnect}
       >
-        <Text style={styles.btnText}>
+        <Text style={styles.actionText}>
           {loading
             ? 'Please wait…'
             : connected
@@ -192,70 +383,124 @@ useEffect(() => {
         </Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => router.back()}>
-        <Text style={styles.back}>← Change server</Text>
-      </TouchableOpacity>
-    </View>
+      <Text style={styles.footerHint}>
+        {Platform.OS === 'android'
+          ? 'Back button: change server'
+          : 'Swipe back: change server'}
+      </Text>
+    </LinearGradient>
   )
 }
 
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
+  container: { flex: 1, padding: 18 },
+  hint: {
+    color: '#9AA6C3',
+    textAlign: 'center',
+    marginTop: 12,
   },
-  title: {
-    fontSize: 26,
+
+  topBar: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  topPill: {
+    borderWidth: 1,
+    borderColor: 'rgba(120,140,255,0.25)',
+    backgroundColor: 'rgba(10,16,48,0.55)',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+  },
+  premiumPill: {
+    backgroundColor: '#FACC15',
+    borderColor: 'rgba(250,204,21,0.35)',
+  },
+  topPillText: {
+    color: '#EAF0FF',
     fontWeight: '800',
-    color: colors.text,
+    fontSize: 12,
+    letterSpacing: 0.3,
   },
-  country: {
-    color: colors.muted,
-    marginBottom: 32,
-  },
-  ring: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    borderWidth: 6,
-    borderColor: colors.border,
-    justifyContent: 'center',
+  iconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: 'rgba(10,16,48,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(120,140,255,0.25)',
     alignItems: 'center',
-    marginBottom: 32,
+    justifyContent: 'center',
   },
-  activeRing: {
-    borderColor: '#22c55e',
+  iconBtnText: { fontSize: 16 },
+
+  header: { marginTop: 26, alignItems: 'center' },
+  title: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#EAF0FF',
+    letterSpacing: 0.3,
+  },
+  country: { color: '#9AA6C3', marginTop: 6 },
+
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(120,140,255,0.35)',
+  },
+  coreRing: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    borderWidth: 2,
+    borderColor: 'rgba(120,140,255,0.35)',
+    backgroundColor: 'rgba(5,7,18,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coreRingActive: {
+    borderColor: 'rgba(34,197,94,0.6)',
   },
   status: {
-    fontWeight: '800',
-    color: colors.text,
+    color: '#EAF0FF',
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    fontSize: 18,
   },
-  button: {
+  statusActive: { color: '#22c55e' },
+  subStatus: { color: '#9AA6C3', marginTop: 8 },
+
+  actionBtn: {
     paddingVertical: 16,
-    paddingHorizontal: 60,
-    borderRadius: 30,
-    marginBottom: 20,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
-  connect: {
-    backgroundColor: colors.primary,
-  },
-  disconnect: {
-    backgroundColor: colors.danger,
-  },
-  btnText: {
+  btnConnect: { backgroundColor: colors.primary },
+  btnDisconnect: { backgroundColor: colors.danger },
+  actionText: {
     color: '#fff',
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 16,
+    letterSpacing: 0.3,
   },
-  back: {
-    color: colors.muted,
-    marginTop: 10,
-  },
-  error: {
-    color: colors.danger,
-    marginBottom: 12,
+
+  footerHint: {
+    textAlign: 'center',
+    color: 'rgba(154,166,195,0.75)',
+    marginBottom: 10,
+    fontSize: 12,
   },
 })
