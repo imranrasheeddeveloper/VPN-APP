@@ -1,143 +1,82 @@
+import { router } from 'expo-router'
 import { useState } from 'react'
 import {
-    Alert,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native'
-import { register } from '../services/auth'
-import { setToken } from '../storage/token'
+import { login, register } from '../../src/services/auth'
+import { setToken } from '../../src/storage/token'
+import { colors } from '../../src/theme'
 
-export default function RegisterScreen({ route, navigation }: any) {
-  const { device } = route.params
-
+export default function RegisterScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [loading, setLoading] = useState(false)
 
-  const onRegister = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Email and password are required')
-      return
-    }
-
+  const submit = async () => {
     if (password !== confirm) {
-      Alert.alert('Error', 'Passwords do not match')
+      Alert.alert('Passwords do not match')
       return
     }
-
-    setLoading(true)
 
     try {
-      // 1️⃣ Register user
       await register(email, password)
-
-      // 2️⃣ Auto-login after register
-      const res = await registerAndLogin(email, password)
-
-      if (res?.token) {
-        await setToken(res.token)
-      }
-
-      const plan = res?.user?.plan || 'free'
-
-      navigation.replace('Servers', {
-        device,
-        plan,
-      })
-    } catch (e: any) {
-      Alert.alert(
-        'Registration failed',
-        e?.response?.data?.message || 'Unable to register',
-      )
-    } finally {
-      setLoading(false)
+      const res = await login(email, password)
+      if (res?.token) await setToken(res.token)
+      router.replace('/screens/ServersScreen')
+    } catch {
+      Alert.alert('Registration failed')
     }
   }
 
   return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: 'center',
-        padding: 20,
-        gap: 12,
-      }}
-    >
-      <Text style={{ fontSize: 22, fontWeight: '700' }}>
-        Create Account
-      </Text>
+    <View style={styles.container}>
+      <Text style={styles.title}>Create Account</Text>
 
-      <TextInput
-        placeholder="Email"
-        autoCapitalize="none"
-        value={email}
-        onChangeText={setEmail}
-        style={{
-          borderWidth: 1,
-          borderRadius: 10,
-          padding: 12,
-        }}
-      />
+      <TextInput style={styles.input} placeholder="Email" placeholderTextColor={colors.muted} value={email} onChangeText={setEmail} />
+      <TextInput style={styles.input} placeholder="Password" placeholderTextColor={colors.muted} secureTextEntry value={password} onChangeText={setPassword} />
+      <TextInput style={styles.input} placeholder="Confirm Password" placeholderTextColor={colors.muted} secureTextEntry value={confirm} onChangeText={setConfirm} />
 
-      <TextInput
-        placeholder="Password"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-        style={{
-          borderWidth: 1,
-          borderRadius: 10,
-          padding: 12,
-        }}
-      />
-
-      <TextInput
-        placeholder="Confirm Password"
-        secureTextEntry
-        value={confirm}
-        onChangeText={setConfirm}
-        style={{
-          borderWidth: 1,
-          borderRadius: 10,
-          padding: 12,
-        }}
-      />
-
-      <TouchableOpacity
-        disabled={loading}
-        onPress={onRegister}
-        style={{
-          padding: 14,
-          backgroundColor: '#111',
-          borderRadius: 10,
-          opacity: loading ? 0.6 : 1,
-        }}
-      >
-        <Text style={{ color: '#fff', textAlign: 'center' }}>
-          {loading ? 'Creating account…' : 'Register'}
-        </Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={() => navigation.goBack()}
-        style={{ padding: 10 }}
-      >
-        <Text style={{ textAlign: 'center' }}>
-          Already have an account? Login
-        </Text>
+      <TouchableOpacity style={styles.primary} onPress={submit}>
+        <Text style={styles.btnText}>Register</Text>
       </TouchableOpacity>
     </View>
   )
 }
 
-/**
- * Helper: register → login flow
- * Backend already supports this pattern
- */
-async function registerAndLogin(email: string, password: string) {
-  const { login } = await import('../services/auth')
-  return login(email, password)
-}
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 24,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 14,
+    color: colors.text,
+    marginBottom: 12,
+  },
+  primary: {
+    backgroundColor: colors.primary,
+    padding: 16,
+    borderRadius: 18,
+  },
+  btnText: {
+    color: '#fff',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+})

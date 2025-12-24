@@ -2,7 +2,8 @@ import { API } from './api'
 
 export async function login(email: string, password: string) {
   const res = await API.post('/auth/login', { email, password })
-  return res.data // expect { token, user: { plan, email... } } (or similar)
+  console.log(res.data)
+  return res.data 
 }
 
 export async function register(email: string, password: string) {

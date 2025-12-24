@@ -1,32 +1,61 @@
-import { Text, TouchableOpacity, View } from 'react-native'
+import { router } from 'expo-router'
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { colors } from '../../src/theme'
 
-export default function AuthChoiceScreen({ route, navigation }: any) {
-  const { device } = route.params
-
+export default function AuthChoiceScreen() {
   return (
-    <View style={{ flex: 1, justifyContent: 'center', padding: 20, gap: 12 }}>
-      <Text style={{ fontSize: 26, fontWeight: '700' }}>SecureNest VPN</Text>
+    <View style={styles.container}>
+      <Text style={styles.logo}>SecureNest</Text>
+      <Text style={styles.tag}>Private • Fast • Secure</Text>
 
       <TouchableOpacity
-        style={{ padding: 14, backgroundColor: '#111', borderRadius: 10 }}
-        onPress={() => navigation.replace('Servers', { device, plan: 'free' })}
+        style={styles.primary}
+        onPress={() => router.push('/screens/LoginScreen')}
       >
-        <Text style={{ color: '#fff', textAlign: 'center' }}>Continue Free</Text>
+        <Text style={styles.btnText}>Login</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={{ padding: 14, backgroundColor: '#ddd', borderRadius: 10 }}
-        onPress={() => navigation.navigate('Login', { device })}
+        style={styles.secondary}
+        onPress={() => router.push('/screens/RegisterScreen')}
       >
-        <Text style={{ textAlign: 'center' }}>Login</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={{ padding: 14, backgroundColor: '#ddd', borderRadius: 10 }}
-        onPress={() => navigation.navigate('Register', { device })}
-      >
-        <Text style={{ textAlign: 'center' }}>Register</Text>
+        <Text style={styles.btnText}>Continue as Guest</Text>
       </TouchableOpacity>
     </View>
   )
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  logo: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  tag: {
+    color: colors.muted,
+    marginBottom: 36,
+  },
+  primary: {
+    backgroundColor: colors.primary,
+    padding: 16,
+    borderRadius: 18,
+    marginBottom: 12,
+  },
+  secondary: {
+    backgroundColor: '#334155',
+    padding: 16,
+    borderRadius: 18,
+  },
+  btnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+})

@@ -2,7 +2,7 @@ import axios from 'axios'
 import { getToken } from '../storage/token'
 
 export const API = axios.create({
-  baseURL: 'https://YOUR_BACKEND_URL/api',
+  baseURL: 'http://157.173.126.219:4000/api',
   timeout: 15000,
 })
 

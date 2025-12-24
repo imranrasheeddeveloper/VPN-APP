@@ -1,15 +1,18 @@
 import * as Application from 'expo-application'
+import { router } from 'expo-router'
 import { useEffect } from 'react'
-import { Platform, Text, View } from 'react-native'
-import { me } from '../services/auth'
-import { registerDevice } from '../services/device'
-import { setToken } from '../storage/token'
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native'
 
-export default function SplashScreen({ navigation }: any) {
+import { me } from '../../src/services/auth'
+import { registerDevice } from '../../src/services/device'
+import { setToken } from '../../src/storage/token'
+import { colors } from '../../src/theme'
+
+export default function SplashScreen() {
   useEffect(() => {
     const init = async () => {
-      // 1️⃣ Generate device ID
       let deviceId = `${Platform.OS}-${Date.now()}`
+
       try {
         if (Platform.OS === 'ios') {
           const id = await Application.getIosIdForVendorAsync()
@@ -17,25 +20,21 @@ export default function SplashScreen({ navigation }: any) {
         }
       } catch {}
 
-      // 2️⃣ Register device → GET JWT
-      const deviceRes = await registerDevice(deviceId, Platform.OS)
-
-      if (deviceRes?.token) {
-        await setToken(deviceRes.token)
-      }
-
-      // 3️⃣ Try loading profile (works for free + premium)
       try {
-        const profile = await me()
-        navigation.replace('Servers', {
-          device: deviceRes,
-          plan: profile.plan || 'free',
-        })
+        const device = await registerDevice(deviceId, Platform.OS)
+        if (device?.token) await setToken(device.token)
+
+        try {
+          const profile = await me()
+          router.replace({
+            pathname: '/screens/ServersScreen',
+            params: { plan: profile.plan || 'free' },
+          })
+        } catch {
+          router.replace('/screens/AuthChoiceScreen')
+        }
       } catch {
-        navigation.replace('Servers', {
-          device: deviceRes,
-          plan: 'free',
-        })
+        router.replace('/screens/AuthChoiceScreen')
       }
     }
 
@@ -43,9 +42,29 @@ export default function SplashScreen({ navigation }: any) {
   }, [])
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text style={{ fontSize: 26, fontWeight: '700' }}>SecureNest VPN</Text>
-      <Text>Initializing secure connection…</Text>
+    <View style={styles.container}>
+      <Text style={styles.logo}>SecureNest</Text>
+      <Text style={styles.subtitle}>Establishing secure tunnel</Text>
+      <ActivityIndicator size="large" color={colors.primary} />
     </View>
   )
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logo: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  subtitle: {
+    color: colors.muted,
+    marginBottom: 24,
+  },
+})
