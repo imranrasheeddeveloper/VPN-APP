@@ -7,44 +7,49 @@ import com.facebook.react.bridge.*
 
 class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
-
-    // Inside your WireGuardModule.kt class
     init {
         SecureNestVpnService.reactContext = reactContext
     }
 
-    // In WireGuardModule.kt
-      override fun invalidate() {
-          super.invalidate()
-          SecureNestVpnService.reactContext = null
-      }
-    // This MUST match what you use in JS: NativeModules.WireGuardModule
-    override fun getName(): String = "WireGuardModule"
-    
-
-    @ReactMethod
-    fun prepare(promise: Promise) {
-        val activity = currentActivity
-        if (activity == null) {
-            promise.reject("NO_ACTIVITY", "Activity is null")
-            return
-        }
-
-        val intent = VpnService.prepare(activity)
-        if (intent != null) {
-            // This triggers the "Allow VPN Connection" system dialog
-            activity.startActivityForResult(intent, 0)
-            promise.resolve(false) // Not ready yet, user needs to accept
-        } else {
-            promise.resolve(true) // Already prepared
-        }
+    override fun invalidate() {
+        super.invalidate()
+        SecureNestVpnService.reactContext = null
     }
 
+    override fun getName(): String = "WireGuardModule"
+
+    @ReactMethod
+      fun prepare(promise: Promise) {
+          // 1. Get the activity from the context explicitly
+          val activity = reactApplicationContext.currentActivity
+          
+          if (activity == null) {
+              promise.reject("NO_ACTIVITY", "Activity is null")
+              return
+          }
+
+          // 2. VpnService.prepare expects a Context. 
+          // Passing 'activity' (which is a Context) is correct.
+          val intent = VpnService.prepare(activity)
+          
+          if (intent != null) {
+              try {
+                  // 3. You must call startActivityForResult on the activity object
+                  activity.startActivityForResult(intent, 0)
+                  promise.resolve(false) 
+              } catch (e: Exception) {
+                  promise.reject("PREPARE_ERROR", e.message)
+              }
+          } else {
+              promise.resolve(true) 
+          }
+      }
     @ReactMethod
     fun connect(config: String, promise: Promise) {
         try {
             val intent = Intent(reactApplicationContext, SecureNestVpnService::class.java)
             intent.putExtra("config", config)
+            // Start service via the context
             reactApplicationContext.startService(intent)
             promise.resolve(true)
         } catch (e: Exception) {

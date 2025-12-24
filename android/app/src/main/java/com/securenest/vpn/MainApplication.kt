@@ -2,7 +2,7 @@ package com.securenest.vpn
 
 import android.app.Application
 import android.content.res.Configuration
-
+import com.securenest.vpn.vpn.SecureNestVpnPackage
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
@@ -15,7 +15,6 @@ import com.facebook.react.defaults.DefaultReactNativeHost
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
-import com.securenest.vpn.vpn.SecureNestVpnPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -23,9 +22,10 @@ class MainApplication : Application(), ReactApplication {
       this,
       object : DefaultReactNativeHost(this) {
             override fun getPackages(): List<ReactPackage> {
-              val packages = PackageList(this).packages
-              packages.add(com.securenest.vpn.vpn.WireGuardPackage())
-              return packages
+                val packages = PackageList(this).packages.toMutableList()
+                // Remove 'new' - it doesn't exist in Kotlin!
+                packages.add(SecureNestVpnPackage())
+                return packages
             }
 
 

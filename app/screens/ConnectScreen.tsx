@@ -106,25 +106,30 @@ useEffect(() => {
 
   // 🔌 CONNECT (BACKEND + NATIVE WIREGUARD)
   const onConnect = async () => {
-    setLoading(true);
-    try {
-      const isReady = await prepareVPN();
-      if (!isReady) {
+  setLoading(true);
+  try {
+    const isReady = await prepareVPN();
+    if (!isReady) {
         setLoading(false);
         return; 
-      }
-
-      const res = await connectSession(server.id);
-      if (res?.id) setSessionId(res.id); 
-
-      await connectVPN(res.config);
-      // 💡 REMOVED: setConnected(true); 
-      // The useEffect listener will set this to true once the tunnel is actually 'UP'
-    } catch (e: any) {
-      setLoading(false); // Reset loading on error
-      Alert.alert('Error', e.message);
     }
-  };
+
+    const res = await connectSession(server.id);
+    
+    // Safety Timeout: If no status change in 10 seconds, stop loading
+    setTimeout(() => {
+        setLoading(current => {
+            if (current) Alert.alert("Connection Timeout", "Please try again.");
+            return false;
+        });
+    }, 10000);
+
+    await connectVPN(res.config);
+  } catch (e: any) {
+    setLoading(false);
+    Alert.alert('Error', e.message);
+  }
+};
 
   // 🔌 DISCONNECT (NATIVE + BACKEND)
   const onDisconnect = async () => {
