@@ -1,7 +1,10 @@
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../../src/hooks/useAuth'
+
+import { Feather } from '@expo/vector-icons'
 import {
   Alert,
   Platform,
@@ -13,18 +16,8 @@ import {
 import * as RNIap from 'react-native-iap'
 import { colors } from '../../src/theme'
 
-/**
- * ================================
- * FORCE ANY (FIXES BROKEN TYPES)
- * ================================
- */
 const IAP: any = RNIap
 
-/**
- * ================================
- * SUBSCRIPTION IDS
- * ================================
- */
 const SUB_IDS = ['premium_monthly', 'premium_yearly']
 
 type PlanKey = 'monthly' | 'yearly'
@@ -37,11 +30,6 @@ type Plan = {
 }
 
 export default function UpgradeScreen() {
-  /**
-   * ================================
-   * SAFE PRICING
-   * ================================
-   */
   const plans: Plan[] = useMemo(
     () => [
       {
@@ -65,6 +53,11 @@ export default function UpgradeScreen() {
   const [selected, setSelected] = useState<PlanKey>('yearly')
   const [buying, setBuying] = useState(false)
 
+  const params = useLocalSearchParams()
+  const targetServer = params.server
+
+  const { plan } = useAuth() // 🔴 ONLY USED FOR AUTO-RETURN
+
   /**
    * ================================
    * INIT / CLEANUP BILLING
@@ -79,80 +72,87 @@ export default function UpgradeScreen() {
     }
   }, [])
 
+  /**
+   * ================================
+   * AUTO-RETURN AFTER PREMIUM
+   * ================================
+   */
   useEffect(() => {
-  console.log('IAP methods:', Object.keys(RNIap))
-}, [])
+    if (plan === 'premium' && targetServer) {
+      router.replace({
+        pathname: '/screens/ConnectScreen',
+        params: { server: targetServer },
+      })
+    }
+  }, [plan, targetServer])
 
   /**
    * ================================
-   * BUY SUBSCRIPTION (WORKING)
+   * BUY SUBSCRIPTION
    * ================================
    */
   const onBuy = async () => {
-  setBuying(true)
-  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    setBuying(true)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
 
-  try {
-    if (Platform.OS !== 'android') {
-      Alert.alert('Android only', 'Google Play Billing works on Android only')
-      return
+    try {
+      if (Platform.OS !== 'android') {
+        Alert.alert('Android only', 'Google Play Billing works on Android only')
+        return
+      }
+
+      const productId =
+        selected === 'monthly'
+          ? 'premium_monthly'
+          : 'premium_yearly'
+
+      const products = await IAP.fetchProducts({
+        skus: [productId],
+        type: 'subs',
+      })
+
+      if (!products || products.length === 0) {
+        Alert.alert('Error', 'Subscription not found')
+        return
+      }
+
+      await IAP.requestPurchase({
+        sku: products[0].productId,
+      })
+    } catch (e: any) {
+      Alert.alert('Purchase failed', e?.message || 'Please try again')
+    } finally {
+      setBuying(false)
     }
-
-    if (!IAP.fetchProducts || !IAP.requestPurchase) {
-      Alert.alert(
-        'Billing not ready',
-        'In-app purchases are not available in this build.'
-      )
-      return
-    }
-
-    const productId =
-      selected === 'monthly'
-        ? 'premium_monthly'
-        : 'premium_yearly'
-
-    // 1️⃣ Fetch subscription products
-    const products = await IAP.fetchProducts({
-      skus: [productId],
-      type: 'subs', // 🔴 IMPORTANT: this tells Google it is a subscription
-    })
-
-    if (!products || products.length === 0) {
-      Alert.alert('Error', 'Subscription not found in Play Console')
-      return
-    }
-
-    const product = products[0]
-
-    // 2️⃣ Start purchase
-    await IAP.requestPurchase({
-      sku: product.productId,
-    })
-
-    // purchaseUpdatedListener will handle success
-  } catch (e: any) {
-    Alert.alert('Purchase failed', e?.message || 'Please try again')
-  } finally {
-    setBuying(false)
   }
-}
 
-
+  /**
+   * ================================
+   * UI (UNCHANGED)
+   * ================================
+   */
   return (
     <LinearGradient
       colors={['#050712', '#070B1D', '#0A1030']}
       style={styles.container}
     >
       <View style={styles.top}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>←</Text>
+       <Pressable
+          onPress={() => router.back()}
+          style={styles.backButtonAbsolute}
+        >
+          <View style={styles.backCircle}>
+            <Feather name="chevron-left" size={24} color="#EAF0FF" />
+          </View>
         </Pressable>
+
 
         <Text style={styles.title}>Go Premium</Text>
         <Text style={styles.subtitle}>
           Unlimited speed · Premium locations · Priority routing
         </Text>
       </View>
+
 
       <View style={styles.cards}>
         {plans.map((p) => {
@@ -212,6 +212,7 @@ export default function UpgradeScreen() {
   )
 }
 
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 18 },
   top: { marginTop: 10, alignItems: 'center' },
@@ -227,7 +228,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   backText: { color: '#EAF0FF', fontWeight: '900', fontSize: 16 },
-  title: { marginTop: 10, fontSize: 28, fontWeight: '900', color: '#EAF0FF' },
+  title: { marginTop: 40, fontSize: 28, fontWeight: '900', color: '#EAF0FF' },
   subtitle: { color: '#9AA6C3', marginTop: 6, textAlign: 'center' },
   cards: { marginTop: 18, gap: 12 },
   card: {
@@ -279,4 +280,18 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 12,
   },
+  backCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(120,140,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonAbsolute: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+  },
+
 })

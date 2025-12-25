@@ -1,11 +1,14 @@
 'use client';
 
+'use client';
+
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   LayoutAnimation,
   Platform,
@@ -13,9 +16,10 @@ import {
   StyleSheet,
   Text,
   UIManager,
-  View
+  View,
 } from 'react-native';
 
+import { useAuth } from '../../src/hooks/useAuth'; // 🔴 NEW
 import { listServers } from '../../src/services/servers';
 
 // Enable LayoutAnimation for Android
@@ -28,9 +32,9 @@ type Server = {
   name: string;
   country: string;
   countryCode: string;
-  city: string; // Ensure your backend sends city
+  city: string;
   isPremium: boolean;
-  load: number; 
+  load: number;
   status: string;
 };
 
@@ -44,6 +48,8 @@ export default function ServersScreen() {
   const [rawServers, setRawServers] = useState<Server[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedCountry, setExpandedCountry] = useState<string | null>(null);
+
+  const { plan } = useAuth(); // 🔴 NEW
 
   useEffect(() => {
     const loadServers = async () => {
@@ -60,7 +66,6 @@ export default function ServersScreen() {
     loadServers();
   }, []);
 
-  // Professional Grouping Logic
   const groupedData = useMemo(() => {
     const groups: { [key: string]: GroupedCountry } = {};
     rawServers.forEach(server => {
@@ -68,12 +73,14 @@ export default function ServersScreen() {
         groups[server.country] = {
           country: server.country,
           countryCode: server.countryCode,
-          servers: []
+          servers: [],
         };
       }
       groups[server.country].servers.push(server);
     });
-    return Object.values(groups).sort((a, b) => a.country.localeCompare(b.country));
+    return Object.values(groups).sort((a, b) =>
+      a.country.localeCompare(b.country)
+    );
   }, [rawServers]);
 
   const toggleExpand = (country: string) => {
@@ -81,7 +88,27 @@ export default function ServersScreen() {
     setExpandedCountry(expandedCountry === country ? null : country);
   };
 
+  // ✅ ONLY LOGIC CHANGE IS HERE
   const selectServer = (server: Server) => {
+    if (server.isPremium && plan !== 'premium') {
+      Alert.alert(
+        'Premium Server',
+        'Upgrade to Premium to access this server.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Upgrade',
+            onPress: () =>
+              router.push({
+                pathname: '/screens/UpgradeScreen',
+                params: { server: JSON.stringify(server) },
+              }),
+          },
+        ]
+      );
+      return;
+    }
+
     router.replace({
       pathname: '/screens/ConnectScreen',
       params: { server: JSON.stringify(server) },
@@ -100,43 +127,59 @@ export default function ServersScreen() {
 
     return (
       <View style={styles.countryGroup}>
-        {/* Country Header */}
-        <Pressable 
+        <Pressable
           onPress={() => toggleExpand(item.country)}
           style={[styles.countryHeader, isExpanded && styles.countryHeaderActive]}
         >
           <View style={styles.cardLeft}>
             <View style={styles.flagCircle}>
-              <Text style={{ fontSize: 22 }}>{getFlagEmoji(item.countryCode)}</Text>
+              <Text style={{ fontSize: 22 }}>
+                {getFlagEmoji(item.countryCode)}
+              </Text>
             </View>
             <View>
               <Text style={styles.countryName}>{item.country}</Text>
-              <Text style={styles.serverCount}>{item.servers.length} Locations</Text>
+              <Text style={styles.serverCount}>
+                {item.servers.length} Locations
+              </Text>
             </View>
           </View>
-          <Feather 
-            name={isExpanded ? "chevron-up" : "chevron-down"} 
-            size={20} 
-            color="#9AA6C3" 
+          <Feather
+            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color="#9AA6C3"
           />
         </Pressable>
 
-        {/* Nested Server List */}
         {isExpanded && (
           <View style={styles.serverList}>
-            {item.servers.map((server) => {
+            {item.servers.map(server => {
               const metrics = getMetrics(server.load);
               return (
-                <Pressable 
-                  key={server.id} 
+                <Pressable
+                  key={server.id}
                   onPress={() => selectServer(server)}
                   style={styles.serverItem}
                 >
                   <View style={styles.serverInfo}>
-                    <Text style={styles.cityName}>{server.city || server.name}</Text>
+                    <Text style={styles.cityName}>
+                      {server.city || server.name}
+                    </Text>
                     <View style={styles.statusRow}>
-                        <View style={[styles.pulseDot, { backgroundColor: metrics.color }]} />
-                        <Text style={[styles.statusText, { color: metrics.color }]}>{metrics.label}</Text>
+                      <View
+                        style={[
+                          styles.pulseDot,
+                          { backgroundColor: metrics.color },
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.statusText,
+                          { color: metrics.color },
+                        ]}
+                      >
+                        {metrics.label}
+                      </Text>
                     </View>
                   </View>
 
@@ -148,9 +191,36 @@ export default function ServersScreen() {
                       </View>
                     )}
                     <View style={styles.signalIcon}>
-                      <View style={[styles.signalBar, { height: 4, backgroundColor: metrics.color }]} />
-                      <View style={[styles.signalBar, { height: 7, backgroundColor: metrics.bars >= 2 ? metrics.color : 'rgba(255,255,255,0.1)' }]} />
-                      <View style={[styles.signalBar, { height: 10, backgroundColor: metrics.bars >= 3 ? metrics.color : 'rgba(255,255,255,0.1)' }]} />
+                      <View
+                        style={[
+                          styles.signalBar,
+                          { height: 4, backgroundColor: metrics.color },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.signalBar,
+                          {
+                            height: 7,
+                            backgroundColor:
+                              metrics.bars >= 2
+                                ? metrics.color
+                                : 'rgba(255,255,255,0.1)',
+                          },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.signalBar,
+                          {
+                            height: 10,
+                            backgroundColor:
+                              metrics.bars >= 3
+                                ? metrics.color
+                                : 'rgba(255,255,255,0.1)',
+                          },
+                        ]}
+                      />
                     </View>
                   </View>
                 </Pressable>
@@ -169,7 +239,7 @@ export default function ServersScreen() {
           <Feather name="chevron-left" size={24} color="#EAF0FF" />
         </Pressable>
         <Text style={styles.title}>Select Location</Text>
-        <View style={{ width: 40 }} /> 
+        <View style={{ width: 40 }} />
       </View>
 
       {loading ? (
@@ -177,7 +247,7 @@ export default function ServersScreen() {
       ) : (
         <FlatList
           data={groupedData}
-          keyExtractor={(item) => item.country}
+          keyExtractor={item => item.country}
           renderItem={renderCountry}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
@@ -189,7 +259,10 @@ export default function ServersScreen() {
 
 function getFlagEmoji(countryCode: string) {
   if (!countryCode) return '🏳️';
-  const codePoints = countryCode.toUpperCase().split('').map(char => 127397 + char.charCodeAt(0));
+  const codePoints = countryCode
+    .toUpperCase()
+    .split('')
+    .map(char => 127397 + char.charCodeAt(0));
   return String.fromCodePoint(...codePoints);
 }
 

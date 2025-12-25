@@ -2,7 +2,9 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '../../src/hooks/useAuth';
 
+import { Feather } from '@expo/vector-icons';
 import {
   ActivityIndicator,
   Alert,
@@ -16,7 +18,6 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-
 import { useVpnHeartbeat } from '../../src/hooks/useVpnHeartbeat';
 import {
   connectVPN,
@@ -38,6 +39,7 @@ type Server = {
   name: string
   country: string
   isPremium?: boolean
+  countryCode: string;
   tier?: string
 }
 
@@ -55,7 +57,9 @@ export default function ConnectScreen() {
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
   const [sessionId, setSessionId] = useState<number | null>(null)
+  const { isLoggedIn, email, plan } = useAuth()
    const [stats, setStats] = useState({ down: 0, up: 0 });
+const initRef = useRef(false);
 
   useVpnHeartbeat(connected, sessionId);
 
@@ -119,45 +123,49 @@ export default function ConnectScreen() {
 
   /* ================= INITIALIZATION LOGIC ================= */
   useEffect(() => {
-    const initializeVpnState = async () => {
-      try {
-        setChecking(true);
-        const [vpnStatus, res] = await Promise.all([
-          getVpnStatus(),
-          activeSessions().catch(() => null)
-        ]);
+  if (initRef.current) return;
+  initRef.current = true;
 
-        const sessions = res?.data || res || [];
-        const hasApiSession = sessions.length > 0;
+  const initializeVpnState = async () => {
+    try {
+      setChecking(true);
 
-        console.log('🔍 Initial Sync:', { vpnStatus, hasApiSession });
+      const [vpnStatus, res] = await Promise.all([
+        getVpnStatus(),
+        activeSessions().catch(() => null),
+      ]);
 
-        if (vpnStatus === 'UP' && hasApiSession) {
-          setConnected(true);
-          setSessionId(sessions[0].id);
-        } 
-        else if (vpnStatus === 'UP' && !hasApiSession) {
-          await disconnectVPN();
-          setConnected(false);
-        } 
-        else if (vpnStatus === 'DOWN' && hasApiSession) {
-          // Clean up stale backend session if VPN is down
-          await disconnectSession(sessions[0].id).catch(() => {});
-          setConnected(false);
-          setSessionId(null);
-        } else {
-          setConnected(false);
-          setSessionId(null);
-        }
-      } catch (e) {
-        console.log('❌ Init Error:', e);
-      } finally {
-        setChecking(false);
+      const sessions = res?.data || res || [];
+      const hasApiSession = sessions.length > 0;
+
+      console.log('🔍 Initial Sync:', { vpnStatus, hasApiSession });
+
+      if (vpnStatus === 'UP' && hasApiSession) {
+        setConnected(true);
+        setSessionId(sessions[0].id);
+      } 
+      else if (vpnStatus === 'UP' && !hasApiSession) {
+        await disconnectVPN();
+        setConnected(false);
+      } 
+      else if (vpnStatus === 'DOWN' && hasApiSession) {
+        await disconnectSession(sessions[0].id).catch(() => {});
+        setConnected(false);
+        setSessionId(null);
+      } else {
+        setConnected(false);
+        setSessionId(null);
       }
-    };
+    } catch (e) {
+      console.log('❌ Init Error:', e);
+    } finally {
+      setChecking(false);
+    }
+  };
 
-    initializeVpnState();
-  }, []);
+  initializeVpnState();
+}, []);
+
 
   /* ================= VPN EVENT LISTENER ================= */
   useEffect(() => {
@@ -284,17 +292,60 @@ export default function ConnectScreen() {
   return (
     <LinearGradient colors={['#050712', '#070B1D', '#0A1030']} style={styles.container}>
       <View style={styles.topBar}>
-        <Pressable onPress={changeServer} style={styles.topPill}>
-          <Text style={styles.topPillText}>Change Server</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push('/screens/UpgradeScreen')} style={[styles.topPill, styles.premiumPill]}>
-          <Text style={[styles.topPillText, { color: '#0B1224' }]}>Premium</Text>
-        </Pressable>
-      </View>
+          {/* LEFT: Account */}
+          <Pressable
+            onPress={() =>
+              router.push(isLoggedIn ? '/screens/ProfileScreen' : '/screens/LoginScreen')
+            }
+            style={styles.accountChip}
+          >
+            <Feather
+              name="user"
+              size={14}
+              color={isLoggedIn ? '#EAF0FF' : '#9AA6C3'}
+            />
+            <View>
+              <Text style={styles.accountTitle}>
+                {isLoggedIn ? 'Account' : 'Sign in'}
+              </Text>
+              <Text style={styles.accountSub}>
+                {isLoggedIn ? 'View profile' : 'Access premium features'}
+              </Text>
+            </View>
+          </Pressable>
+
+
+          {/* RIGHT: Subscription */}
+          {plan === 'premium' ? (
+            <View style={styles.proActive}>
+              <Feather name="shield" size={12} color="#22c55e" />
+              <Text style={styles.proActiveText}>Premium Active</Text>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => router.push('/screens/UpgradeScreen')}
+              style={styles.proButton}
+            >
+              <Feather name="zap" size={12} color="#0B1224" />
+              <Text style={styles.proText}>Upgrade</Text>
+            </Pressable>
+          )}
+        </View>
 
       <View style={styles.header}>
+        <Text style={styles.country}>
+            {getFlagEmoji(server.countryCode)} {server.country}
+          </Text>
         <Text style={styles.title}>{server.name}</Text>
-        <Text style={styles.country}>{server.country}</Text>
+        
+        {/* Change Server */}
+        <Pressable
+          onPress={changeServer}
+          style={styles.changeServerRow}
+        >
+          <Feather name="repeat" size={14} color="#9AA6C3" />
+          <Text style={styles.changeServerText}>Change server</Text>
+        </Pressable>
         {connected && (
           <View style={styles.statsRow}>
             <Text style={styles.statText}>⬇ {stats.down.toFixed(1)} KB/s</Text>
@@ -329,17 +380,26 @@ export default function ConnectScreen() {
       </TouchableOpacity>
     </LinearGradient>
   );
+
+  function getFlagEmoji(countryCode: string) {
+    if (!countryCode) return '🏳️';
+    const codePoints = countryCode
+      .toUpperCase()
+      .split('')
+      .map(char => 127397 + char.charCodeAt(0));
+    return String.fromCodePoint(...codePoints);
+  }
+
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 18 },
-  topBar: { marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   topPill: { borderWidth: 1, borderColor: 'rgba(120,140,255,0.25)', backgroundColor: 'rgba(10,16,48,0.55)', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999 },
   premiumPill: { backgroundColor: '#FACC15', borderColor: 'rgba(250,204,21,0.35)' },
   topPillText: { color: '#EAF0FF', fontWeight: '800', fontSize: 12, letterSpacing: 0.3 },
   header: { marginTop: 26, alignItems: 'center' },
-  title: { fontSize: 28, fontWeight: '900', color: '#EAF0FF', letterSpacing: 0.3 },
-  country: { color: '#9AA6C3', marginTop: 6 },
+  country: { fontSize: 28, fontWeight: '900', color: '#EAF0FF', letterSpacing: 0.3 },
+  title: { color: '#9AA6C3', marginTop: 6 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   pulseRing: { position: 'absolute', width: 260, height: 260, borderRadius: 130, backgroundColor: 'rgba(120,140,255,0.35)' },
   coreRing: { width: 220, height: 220, borderRadius: 110, borderWidth: 2, borderColor: 'rgba(120,140,255,0.35)', backgroundColor: 'rgba(5,7,18,0.65)', alignItems: 'center', justifyContent: 'center' },
@@ -347,7 +407,7 @@ const styles = StyleSheet.create({
   status: { color: '#EAF0FF', fontWeight: '900', letterSpacing: 1.6, fontSize: 18 },
   statusActive: { color: '#22c55e' },
   subStatus: { color: '#9AA6C3', marginTop: 8 },
-  actionBtn: { paddingVertical: 16, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  actionBtn: { paddingVertical: 16, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 50 },
   btnConnect: { backgroundColor: colors.primary },
   btnDisconnect: { backgroundColor: colors.danger },
   actionText: { color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 0.3 },
@@ -368,4 +428,134 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', // Monospace looks better for numbers
   },
+  topBar: {
+  marginTop: 12,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+},
+
+/* ===== Identity ===== */
+identity: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+},
+
+avatar: {
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  backgroundColor: 'rgba(120,140,255,0.2)',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderWidth: 1,
+  borderColor: 'rgba(120,140,255,0.4)',
+},
+
+avatarText: {
+  color: '#EAF0FF',
+  fontWeight: '900',
+},
+
+identityName: {
+  color: '#EAF0FF',
+  fontWeight: '700',
+  fontSize: 13,
+  maxWidth: 120,
+},
+
+identitySub: {
+  color: '#9AA6C3',
+  fontSize: 10,
+  marginTop: -2,
+},
+
+/* ===== Server Chip ===== */
+serverChip: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 6,
+  paddingVertical: 8,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: 'rgba(10,16,48,0.65)',
+  borderWidth: 1,
+  borderColor: 'rgba(120,140,255,0.25)',
+},
+
+serverChipText: {
+  color: '#EAF0FF',
+  fontWeight: '800',
+  fontSize: 12,
+},
+
+/* ===== PRO ===== */
+proButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 4,
+  backgroundColor: '#FACC15',
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderRadius: 999,
+},
+
+proText: {
+  color: '#0B1224',
+  fontWeight: '900',
+  fontSize: 12,
+},
+
+proActive: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 4,
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+},
+
+proActiveText: {
+  color: '#22c55e',
+  fontWeight: '800',
+  fontSize: 12,
+},
+changeServerRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 6,
+  marginTop: 12,
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: 'rgba(120,140,255,0.08)',
+},
+
+changeServerText: {
+  color: '#9AA6C3',
+  fontSize: 12,
+  fontWeight: '700',
+},
+accountChip: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderRadius: 12,
+  backgroundColor: 'rgba(120,140,255,0.08)',
+},
+
+accountTitle: {
+  color: '#EAF0FF',
+  fontWeight: '800',
+  fontSize: 12,
+},
+
+accountSub: {
+  color: '#9AA6C3',
+  fontSize: 10,
+  marginTop: -2,
+},
+
 });

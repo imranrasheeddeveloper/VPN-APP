@@ -1,7 +1,9 @@
-import { router } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
+  Pressable,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -17,6 +19,9 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const params = useLocalSearchParams()
+  const targetServer = params.server
+
 
   const submit = async () => {
     if (!email || !password) {
@@ -35,7 +40,14 @@ export default function LoginScreen() {
 
       await setToken(res.token);
       // Replace ensures user can't "Go Back" into the login screen after success
-      router.replace('/screens/ServersScreen');
+     if (targetServer) {
+        router.replace({
+          pathname: '/screens/ConnectScreen',
+          params: { server: targetServer },
+        })
+      } else {
+        router.replace('/screens/ServersScreen')
+      }
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.message || 'Unknown error';
       Alert.alert('Login Failed', message);
@@ -48,9 +60,9 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header with Back Button */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
+        <Pressable onPress={() => router.back()} style={styles.backCircle}>
+          <Feather name="chevron-left" size={24} color="#EAF0FF" />
+        </Pressable>
       </View>
 
       <View style={styles.content}>
@@ -100,9 +112,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#050712', // Matches ConnectScreen
   },
   header: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-  },
+  paddingHorizontal: 20,
+  paddingTop: 50,
+},
   backBtn: {
     padding: 8,
     marginLeft: -8,
@@ -167,4 +179,16 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '700',
   },
+
+  
+
+backCircle: {
+  width: 40,
+  height: 40,
+  borderRadius: 20,
+  backgroundColor: 'rgba(120,140,255,0.1)',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+
 });
