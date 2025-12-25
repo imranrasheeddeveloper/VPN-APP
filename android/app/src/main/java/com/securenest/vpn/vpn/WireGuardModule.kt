@@ -63,4 +63,16 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         reactApplicationContext.stopService(intent)
         promise.resolve(true)
     }
+
+    @ReactMethod
+    fun getStatus(promise: Promise) {
+        try {
+            val status = SecureNestVpnService.vpnState
+            promise.resolve(status)
+        } catch (e: Exception) {
+            promise.reject("STATUS_ERROR", e.message)
+        }
+    }
+
+
 }

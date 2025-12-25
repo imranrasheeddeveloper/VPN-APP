@@ -14,3 +14,9 @@ export async function activeSessions() {
   const res = await API.get('/sessions/active')
   return res.data
 }
+
+export async function sendHeartbeat(sessionId: number) {
+  return API.post('/sessions/heartbeat', {
+    sessionId,
+  });
+}

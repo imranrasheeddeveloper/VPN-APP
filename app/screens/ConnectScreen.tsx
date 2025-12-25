@@ -1,7 +1,8 @@
-import * as Haptics from 'expo-haptics'
-import { LinearGradient } from 'expo-linear-gradient'
-import { router, useLocalSearchParams } from 'expo-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
 import {
   ActivityIndicator,
   Alert,
@@ -14,19 +15,21 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native'
+} from 'react-native';
 
+import { useVpnHeartbeat } from '../../src/hooks/useVpnHeartbeat';
 import {
   connectVPN,
   disconnectVPN,
-  prepareVPN,
-} from '../../src/native/WireGuard'
+  getVpnStatus,
+  prepareVPN
+} from '../../src/native/WireGuard';
 import {
   activeSessions,
   connectSession,
   disconnectSession,
-} from '../../src/services/sessions'
-import { colors } from '../../src/theme'
+} from '../../src/services/sessions';
+import { colors } from '../../src/theme';
 
 type Server = {
   id: number
@@ -50,6 +53,7 @@ export default function ConnectScreen() {
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
   const [sessionId, setSessionId] = useState<number | null>(null)
+  useVpnHeartbeat(connected, sessionId);
 
   /* ================= ANIMATIONS ================= */
 
@@ -103,6 +107,7 @@ export default function ConnectScreen() {
         if (list.length > 0) {
           setConnected(true)
           setSessionId(list[0].id)
+          await connectVPN(list[0].config)
         }
       } catch (e) {
         console.log('❌ activeSessions error', e)
@@ -113,6 +118,45 @@ export default function ConnectScreen() {
 
     checkSession()
   }, [])
+
+  useEffect(() => {
+    const restoreVpnState = async () => {
+      try {
+        const vpnStatus = await getVpnStatus()
+        console.log('🔍 Native VPN status:', vpnStatus)
+
+        const res = await activeSessions()
+        const sessions = res?.data || res || []
+
+        if (vpnStatus === 'UP' && sessions.length > 0) {
+          // ✅ VPN + backend both active → restore UI
+          setConnected(true)
+          setSessionId(sessions[0].id)
+        }
+
+        if (vpnStatus === 'UP' && sessions.length === 0) {
+          // ⚠ VPN active but backend lost → force disconnect
+          await disconnectVPN()
+          setConnected(false)
+          setSessionId(null)
+        }
+
+        if (vpnStatus === 'DOWN' && sessions.length > 0) {
+          // ⚠ Backend thinks active but VPN is dead → cleanup backend
+          await disconnectSession(sessions[0].id)
+          setConnected(false)
+          setSessionId(null)
+        }
+      } catch (e) {
+        console.log('❌ VPN restore failed', e)
+      } finally {
+        setChecking(false)
+      }
+    }
+
+    restoreVpnState()
+  }, [])
+
 
   /* ================= VPN STATUS LISTENER (ONLY ONE) ================= */
 
@@ -197,9 +241,10 @@ export default function ConnectScreen() {
       }
 
       const res = await connectSession(server.id)
+      console.log('✅ SESSION CONNECTED', res)
 
       // ✅ SAVE SESSION ID (CRITICAL)
-      setSessionId(res.id)
+      setSessionId(res.sessionId)
 
       timeout = setTimeout(() => {
         setLoading((current) => {
@@ -211,6 +256,7 @@ export default function ConnectScreen() {
       }, 10000)
 
       await connectVPN(res.config)
+      
     } catch (e: any) {
       setLoading(false)
       Alert.alert(
