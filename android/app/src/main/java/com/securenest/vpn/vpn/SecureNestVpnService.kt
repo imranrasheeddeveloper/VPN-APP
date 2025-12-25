@@ -39,7 +39,6 @@ class SecureNestVpnService : VpnService() {
         val configString = intent?.getStringExtra("config")
         
         if (configString == null) {
-            Log.e(TAG, "No config provided to VPN Service")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -47,32 +46,27 @@ class SecureNestVpnService : VpnService() {
         startForegroundServiceWithNotification()
 
         try {
-            // 1. Prepare the VpnService Builder for Split Tunneling
+            // 1. Create the system Rules (The Builder)
             val builder = Builder()
             
-            // 2. EXCLUDE YOUR APP: This allows the app to talk to your API 
-            // even if the VPN tunnel is broken or blocked.
-            try {
-                builder.addDisallowedApplication(packageName)
-                Log.d(TAG, "Excluded $packageName from VPN tunnel (Split Tunneling)")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to set split tunneling: ${e.message}")
-            }
+            // 2. THE KILL SWITCH: This tells Android "If the VPN isn't active, block internet"
+            builder.setBlocking(true) 
+            
+            // 3. SPLIT TUNNELING: Keep your app outside so it can still talk to your API
+            builder.addDisallowedApplication(packageName)
 
-            // 3. Configure the config object
+            // 4. ESTABLISH: This "locks in" the rules with the Android System
+            // We use a dummy session name. 
+            builder.setSession("SecureNest")
+                .addAddress("10.0.0.2", 32)
+                .establish() 
+
+            // 5. START WIREGUARD: Now that the "gate" is set up, let WireGuard flow through it
             val config = Config.parse(configString.byteInputStream())
-            
-            // 4. RESET: Ensure clean state before starting
-            backend.setState(tunnel, Tunnel.State.DOWN, null)
-            
-            // 5. START: WireGuard handles the routes/DNS internally based on the config,
-            // but respects the 'disallowed' apps set in the VpnService context.
             backend.setState(tunnel, Tunnel.State.UP, config)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting VPN: ${e.message}")
-            e.printStackTrace()
-            SecureNestVpnService.vpnState = "DOWN"
+            Log.e(TAG, "Error: ${e.message}")
             sendStatus("DOWN")
             stopSelf()
         }

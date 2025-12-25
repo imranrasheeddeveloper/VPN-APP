@@ -9,6 +9,7 @@ import {
   Animated,
   BackHandler,
   DeviceEventEmitter,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -21,7 +22,9 @@ import {
   connectVPN,
   disconnectVPN,
   getVpnStatus,
-  prepareVPN
+  prepareVPN,
+  startVpnStats,
+  stopVpnStats
 } from '../../src/native/WireGuard';
 import {
   activeSessions,
@@ -52,7 +55,8 @@ export default function ConnectScreen() {
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
   const [sessionId, setSessionId] = useState<number | null>(null)
-  
+   const [stats, setStats] = useState({ down: 0, up: 0 });
+
   useVpnHeartbeat(connected, sessionId);
 
   /* ================= ANIMATIONS ================= */
@@ -82,6 +86,32 @@ export default function ConnectScreen() {
   const changeServer = () => {
     router.push('/screens/ServersScreen')
   }
+
+  // EFFECT 1: Control the Native Timer
+  useEffect(() => {
+    if (connected) {
+      startVpnStats();
+    } else {
+      stopVpnStats();
+    }
+    // No return cleanup here that calls stopVpnStats() 
+    // to avoid killing the process during state transitions
+  }, [connected]);
+
+  // EFFECT 2: The Listener (Always ON)
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('VPN_STATS', (data) => {
+      setStats({
+        down: data.down / 1024,
+        up: data.up / 1024
+      });
+    });
+    return () => {
+        sub.remove();
+        stopVpnStats(); // Only stop when the whole screen is closed
+    };
+  }, []);
+
 
   useEffect(() => {
     if (!server) router.push('/screens/ServersScreen')
@@ -151,6 +181,7 @@ export default function ConnectScreen() {
     return () => subscription.remove()
   }, [])
 
+ 
   /* ================= CONNECT ACTION ================= */
   const onConnect = async () => {
     if (!server) return;
@@ -234,6 +265,9 @@ export default function ConnectScreen() {
     return () => sub.remove();
   }, [connected, loading, sessionId]);
 
+
+
+
   /* ================= RENDER ================= */
   if (!server) {
     return (
@@ -261,6 +295,12 @@ export default function ConnectScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>{server.name}</Text>
         <Text style={styles.country}>{server.country}</Text>
+        {connected && (
+          <View style={styles.statsRow}>
+            <Text style={styles.statText}>⬇ {stats.down.toFixed(1)} KB/s</Text>
+            <Text style={styles.statText}>⬆ {stats.up.toFixed(1)} KB/s</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.center}>
@@ -311,4 +351,21 @@ const styles = StyleSheet.create({
   btnConnect: { backgroundColor: colors.primary },
   btnDisconnect: { backgroundColor: colors.danger },
   actionText: { color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 0.3 },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    marginTop: 15,
+    backgroundColor: 'rgba(120,140,255,0.05)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  statText: {
+    color: '#9AA6C3',
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', // Monospace looks better for numbers
+  },
 });

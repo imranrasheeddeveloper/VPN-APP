@@ -7,3 +7,10 @@ export const connectVPN = (config: string) => WireGuardModule.connect(config)
 export const disconnectVPN = () => WireGuardModule.disconnect()
 export const getVpnStatus = (): Promise<'UP' | 'DOWN'> =>
   WireGuardModule.getStatus()
+export const startVpnStats = () => {
+  WireGuardModule.startStats();
+};
+
+export const stopVpnStats = () => {
+  WireGuardModule.stopStats();
+};

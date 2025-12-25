@@ -17,6 +17,12 @@
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
+    <receiver android:name=".vpn.BootReceiver" android:enabled="true" android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.BOOT_COMPLETED" />
+            <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+        </intent-filter>
+    </receiver>
     <service 
             android:name=".vpn.SecureNestVpnService" 
             android:permission="android.permission.BIND_VPN_SERVICE" 
@@ -25,7 +31,7 @@
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
-
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="true"/>
             <property 
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" 
                 android:value="VPN connection for secure browsing" />
