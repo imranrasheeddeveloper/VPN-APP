@@ -7,7 +7,21 @@ import com.facebook.react.bridge.*
 
 class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
+    private var pendingConfig: String? = null
+
+    private val mActivityEventListener = object : BaseActivityEventListener() {
+        // EXACT signature based on your error: No '?' on activity, '?' on data
+        override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+            if (requestCode == 0 && resultCode == Activity.RESULT_OK) {
+                // Now that we have permission, start the service!
+                pendingConfig?.let { startVpnService(it) }
+            }
+            pendingConfig = null
+        }
+    }
+
     init {
+        reactContext.addActivityEventListener(mActivityEventListener)
         SecureNestVpnService.reactContext = reactContext
     }
 
@@ -19,42 +33,44 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     override fun getName(): String = "WireGuardModule"
 
     @ReactMethod
-      fun prepare(promise: Promise) {
-          // 1. Get the activity from the context explicitly
-          val activity = reactApplicationContext.currentActivity
-          
-          if (activity == null) {
-              promise.reject("NO_ACTIVITY", "Activity is null")
-              return
-          }
+    fun prepare(promise: Promise) {
+        val activity = reactApplicationContext.currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "Activity is null")
+            return
+        }
 
-          // 2. VpnService.prepare expects a Context. 
-          // Passing 'activity' (which is a Context) is correct.
-          val intent = VpnService.prepare(activity)
-          
-          if (intent != null) {
-              try {
-                  // 3. You must call startActivityForResult on the activity object
-                  activity.startActivityForResult(intent, 0)
-                  promise.resolve(false) 
-              } catch (e: Exception) {
-                  promise.reject("PREPARE_ERROR", e.message)
-              }
-          } else {
-              promise.resolve(true) 
-          }
-      }
+        val intent = VpnService.prepare(activity)
+        if (intent != null) {
+            try {
+                // RequestCode is 0
+                activity.startActivityForResult(intent, 0)
+                promise.resolve(false) 
+            } catch (e: Exception) {
+                promise.reject("PREPARE_ERROR", e.message)
+            }
+        } else {
+            promise.resolve(true) 
+        }
+    }
+
     @ReactMethod
     fun connect(config: String, promise: Promise) {
         try {
-            val intent = Intent(reactApplicationContext, SecureNestVpnService::class.java)
-            intent.putExtra("config", config)
-            // Start service via the context
-            reactApplicationContext.startService(intent)
+            // Save the config. If permission is already granted, start immediately.
+            // If not, onActivityResult will use this later.
+            pendingConfig = config
+            startVpnService(config)
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("CONNECT_ERROR", e.message)
         }
+    }
+
+    private fun startVpnService(config: String) {
+        val intent = Intent(reactApplicationContext, SecureNestVpnService::class.java)
+        intent.putExtra("config", config)
+        reactApplicationContext.startService(intent)
     }
 
     @ReactMethod
@@ -67,12 +83,9 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     @ReactMethod
     fun getStatus(promise: Promise) {
         try {
-            val status = SecureNestVpnService.vpnState
-            promise.resolve(status)
+            promise.resolve(SecureNestVpnService.vpnState)
         } catch (e: Exception) {
             promise.reject("STATUS_ERROR", e.message)
         }
     }
-
-
 }

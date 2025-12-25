@@ -1,104 +1,73 @@
-import { LinearGradient } from 'expo-linear-gradient'
-import { router } from 'expo-router'
-import { useEffect } from 'react'
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import { useEffect } from 'react';
 import {
   ActivityIndicator,
   Platform,
   StyleSheet,
   Text,
-} from 'react-native'
+} from 'react-native';
 
-import { registerDevice } from '../../src/services/device'
-import { listServers } from '../../src/services/servers'
-import { getDeviceId } from '../../src/storage/device'
-import { getToken, setToken } from '../../src/storage/token'
-import { colors } from '../../src/theme'
-
-/**
- * Simple retry helper (VPN-safe)
- */
-async function retry<T>(
-  fn: () => Promise<T>,
-  retries = 5,
-  delayMs = 700,
-): Promise<T> {
-  let lastError
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn()
-    } catch (e) {
-      lastError = e
-      await new Promise(r => setTimeout(r, delayMs))
-    }
-  }
-  throw lastError
-}
+import { registerDevice } from '../../src/services/device';
+import { listServers } from '../../src/services/servers';
+import { getDeviceId } from '../../src/storage/device';
+import { getToken, setToken } from '../../src/storage/token';
+import { colors } from '../../src/theme';
 
 export default function SplashScreen() {
   useEffect(() => {
-    let cancelled = false
+    let isMounted = true;
 
-    const init = async () => {
-      // Absolute failsafe
-      const splashTimeout = setTimeout(() => {
-        if (!cancelled) {
-          router.replace('/screens/ServersScreen')
-        }
-      }, 8000)
-
+    const initializeApp = async () => {
       try {
-        const deviceId = await getDeviceId()
+        // 1. Get unique Device ID
+        const deviceId = await getDeviceId();
 
-        // 🔐 Token-first (register ONLY once)
-        let token = await getToken()
+        // 2. Check if we already have a token
+        let token = await getToken();
+        
+        // 3. Register device if no token exists
         if (!token) {
-          const res = await retry(() =>
-            registerDevice(deviceId, Platform.OS),
-          )
-
-          if (!res?.deviceToken) {
-            throw new Error('deviceToken missing')
+          console.log('📱 Registering new device...');
+          const regRes = await registerDevice(deviceId, Platform.OS);
+          if (regRes?.deviceToken) {
+            await setToken(regRes.deviceToken);
           }
-
-          await setToken(res.deviceToken)
         }
 
-        // 🌍 Fetch servers with retry (handles VPN DNS delay)
-        const serversRes = await retry(() => listServers())
-        const servers = serversRes?.data || serversRes || []
+        // 4. Fetch servers so we can pass a default one to ConnectScreen
+        const serversRes = await listServers();
+        const servers = serversRes?.data || serversRes || [];
 
-        if (!servers.length) {
-          throw new Error('No servers available')
-        }
+        if (!isMounted) return;
 
-        const defaultServer =
-          servers.find(
-            (s: any) => !s.isPremium && s.tier !== 'premium',
-          ) || servers[0]
-
-        clearTimeout(splashTimeout)
-
-        if (!cancelled) {
+        if (servers.length > 0) {
+          // Found servers! Pick the first free one
+          const defaultServer = servers.find((s: any) => !s.isPremium) || servers[0];
+          
+          // ✅ Move to ConnectScreen and "Kill" the Splash from history
           router.replace({
             pathname: '/screens/ConnectScreen',
-            params: {
-              server: JSON.stringify(defaultServer),
-            },
-          })
+            params: { server: JSON.stringify(defaultServer) },
+          });
+        } else {
+          // No servers found in API, go to server list to retry
+          router.replace('/screens/ServersScreen');
         }
+
       } catch (e) {
-        clearTimeout(splashTimeout)
-        if (!cancelled) {
-          router.replace('/screens/ServersScreen')
+        console.error('❌ Splash Initialization Error:', e);
+        if (isMounted) {
+          // Failsafe: if API is down, go to ServersScreen so user can try to refresh
+          router.replace('/screens/ServersScreen');
         }
       }
-    }
+    };
 
-    init()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    initializeApp();
+
+    return () => { isMounted = false; };
+  }, []);
 
   return (
     <LinearGradient
@@ -106,12 +75,10 @@ export default function SplashScreen() {
       style={styles.container}
     >
       <Text style={styles.logo}>SecureNest</Text>
-      <Text style={styles.subtitle}>
-        Establishing secure tunnel
-      </Text>
+      <Text style={styles.subtitle}>Securing your connection...</Text>
       <ActivityIndicator size="large" color={colors.primary} />
     </LinearGradient>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -129,5 +96,6 @@ const styles = StyleSheet.create({
   subtitle: {
     color: '#9AA6C3',
     marginBottom: 24,
+    fontSize: 14,
   },
-})
+});
