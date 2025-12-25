@@ -84,7 +84,7 @@ export default function ConnectScreen() {
   }
 
   useEffect(() => {
-    if (!server) router.replace('/screens/ServersScreen')
+    if (!server) router.push('/screens/ServersScreen')
   }, [server])
 
   /* ================= INITIALIZATION LOGIC ================= */
@@ -227,7 +227,7 @@ export default function ConnectScreen() {
         ]);
         return true;
       }
-      changeServer();
+      router.push('/screens/ServersScreen');
       return true;
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
