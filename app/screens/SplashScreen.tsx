@@ -1,3 +1,4 @@
+import { registerForPushNotifications } from '@/src/utlis/registerPush';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
@@ -8,9 +9,8 @@ import {
   StyleSheet,
   Text,
 } from 'react-native';
-
 import splashLogo from '../../assets/images/splash-logo.png';
-import { registerDevice } from '../../src/services/device';
+import { registerDevice, registerDevicePushToken } from '../../src/services/device';
 import { listServers } from '../../src/services/servers';
 import { getDeviceId } from '../../src/storage/device';
 import { getToken, setToken } from '../../src/storage/token';
@@ -31,6 +31,13 @@ export default function SplashScreen() {
             await setToken(regRes.deviceToken);
           }
         }
+
+          // 2️⃣ Register push token (ALWAYS safe to try)
+          const pushToken = await registerForPushNotifications();
+
+          if (pushToken) {
+            await registerDevicePushToken(pushToken);
+          }
 
         const serversRes = await listServers();
         const servers = serversRes?.data || serversRes || [];

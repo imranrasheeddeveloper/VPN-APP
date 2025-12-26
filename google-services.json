@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "215467771056",
+    "project_id": "nestvpn-2c7a9",
+    "storage_bucket": "nestvpn-2c7a9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:215467771056:android:c7b50531c2da974af46775",
+        "android_client_info": {
+          "package_name": "com.securenest.vpn"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAPncPCefZDUUiSAxFjJoBKFi_o_cluVa0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

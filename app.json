@@ -1,13 +1,20 @@
 {
   "expo": {
     "name": "SecureNestVPN",
-    "slug": "SecureNestVPN",
+    "slug": "secure-nest-vpn",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "securenestvpn",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "extra": {
+      "googleExpoClientId": "338085040480-qq66hv1mlacgomjnraoq470c53rtge70.apps.googleusercontent.com",
+      "router": {},
+      "eas": {
+        "projectId": "3cf346a8-c011-49c7-9c9e-f00ad82c93f5"
+      }
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.securenest.vpn"
@@ -19,6 +26,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.securenest.vpn"
@@ -42,11 +50,17 @@
         }
       ],
       "expo-secure-store",
-      "react-native-iap"
+      "react-native-iap",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "owner": "imranrasheed-itridtechnologies",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/3cf346a8-c011-49c7-9c9e-f00ad82c93f5"
     }
   }
 }

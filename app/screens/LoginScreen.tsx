@@ -1,8 +1,15 @@
-import { Feather } from '@expo/vector-icons';
+import { Feather, FontAwesome } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import * as AuthSession from 'expo-auth-session';
+import * as Google from 'expo-auth-session/providers/google';
+
 import { router, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import {
   Alert,
+  DeviceEventEmitter,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -12,17 +19,29 @@ import {
   View
 } from 'react-native';
 import { login } from '../../src/services/auth';
+import { restoreSubscription } from '../../src/services/subscriptions';
+import { getDeviceId } from '../../src/storage/device';
 import { setToken } from '../../src/storage/token';
 import { colors } from '../../src/theme';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const params = useLocalSearchParams()
+  const GOOGLE_CLIENT_ID =
+  '338085040480-qq66hv1mlacgomjnraoq470c53rtge70.apps.googleusercontent.com';
   const targetServer = params.server
+  const redirectUri = AuthSession.makeRedirectUri();
 
-
+  const [googleRequest, googleResponse, promptGoogleLogin] =
+  Google.useAuthRequest({
+    clientId: GOOGLE_CLIENT_ID,
+    scopes: ['openid', 'profile', 'email'],
+    responseType: 'id_token',
+  });
   const submit = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
@@ -32,7 +51,10 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       console.log('🔐 LOGIN ATTEMPT', { email });
-      const res = await login(email, password);
+      const deviceId = await getDeviceId();
+
+      const res = await login(email, password, deviceId);
+
 
       if (!res?.token) {
         throw new Error('Token missing in response');
@@ -40,6 +62,15 @@ export default function LoginScreen() {
 
       await setToken(res.token);
       // Replace ensures user can't "Go Back" into the login screen after success
+
+      const pending = await AsyncStorage.getItem('PENDING_PURCHASE_TOKEN');
+
+      if (pending) {
+        await restoreSubscription(pending);
+        await AsyncStorage.removeItem('PENDING_PURCHASE_TOKEN');
+        DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED');
+      }
+  
      if (targetServer) {
         router.replace({
           pathname: '/screens/ConnectScreen',
@@ -55,6 +86,62 @@ export default function LoginScreen() {
       setLoading(false);
     }
   };
+
+  const googleLogin = async () => {
+  try {
+    const result = await promptGoogleLogin();
+
+    if (result.type !== 'success') return;
+
+    const idToken = result.authentication?.idToken;
+    if (!idToken) {
+      Alert.alert('Google Login Failed', 'No token received');
+      return;
+    }
+
+    setLoading(true);
+    const deviceId = await getDeviceId();
+
+    const res = await fetch(
+      `${process.env.EXPO_PUBLIC_API_URL}/auth/google`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, deviceId }),
+      }
+    ).then(r => r.json());
+
+    if (!res?.token) {
+      throw new Error('Token missing in response');
+    }
+
+    await setToken(res.token);
+
+    const pending = await AsyncStorage.getItem('PENDING_PURCHASE_TOKEN');
+    if (pending) {
+      await restoreSubscription(pending);
+      await AsyncStorage.removeItem('PENDING_PURCHASE_TOKEN');
+      DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED');
+    }
+
+    if (targetServer) {
+      router.replace({
+        pathname: '/screens/ConnectScreen',
+        params: { server: targetServer },
+      });
+    } else {
+      router.replace('/screens/ServersScreen');
+    }
+  } catch (err: any) {
+    Alert.alert(
+      'Google Login Failed',
+      err?.message || 'Unknown error'
+    );
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -95,6 +182,17 @@ export default function LoginScreen() {
         >
           <Text style={styles.btnText}>{loading ? 'Signing in...' : 'Login'}</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.googleBtn}
+          onPress={googleLogin}
+          disabled={!googleRequest || loading}
+        >
+         <FontAwesome name="google" size={18} color="#000" />
+
+          <Text style={styles.googleText}>Continue with Google</Text>
+        </TouchableOpacity>
+        
 
         <TouchableOpacity onPress={() => router.push('/screens/RegisterScreen')} style={styles.footerLink}>
           <Text style={styles.footerText}>
@@ -190,5 +288,21 @@ backCircle: {
   alignItems: 'center',
   justifyContent: 'center',
 },
+
+googleBtn: {
+  backgroundColor: '#fff',
+  padding: 16,
+  borderRadius: 18,
+  marginTop: 16,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+googleText: {
+  marginLeft: 8,
+  fontWeight: '700',
+  color: '#000',
+},
+
 
 });

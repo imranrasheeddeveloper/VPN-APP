@@ -7,9 +7,11 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
+
 import { login, register } from '../../src/services/auth';
+import { getDeviceId } from '../../src/storage/device';
 import { setToken } from '../../src/storage/token';
 import { colors } from '../../src/theme';
 
@@ -24,6 +26,7 @@ export default function RegisterScreen() {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
+
     if (password !== confirm) {
       Alert.alert('Error', 'Passwords do not match');
       return;
@@ -31,14 +34,23 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await register(email, password);
-      const res = await login(email, password);
-      if (res?.token) {
-        await setToken(res.token);
-      }
+      // ✅ get device / push token
+      const deviceId = await getDeviceId();
+
+     await register(email, password, deviceId);
+      const res = await login(email, password, deviceId);
+      await setToken(res.token);
       router.replace('/screens/ServersScreen');
-    } catch (err: any) {
-      Alert.alert('Registration Failed', 'Could not create account at this time.');
+
+
+
+      // ✅ go to main app
+      router.replace('/screens/ServersScreen');
+    } catch (err) {
+      Alert.alert(
+        'Registration Failed',
+        'Could not create account at this time.',
+      );
     } finally {
       setLoading(false);
     }
@@ -46,54 +58,65 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Content */}
       <View style={styles.content}>
         <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Join SecureNest for private browsing</Text>
+        <Text style={styles.subtitle}>
+          Join SecureNest for private browsing
+        </Text>
 
-        <TextInput 
-          style={styles.input} 
-          placeholder="Email Address" 
-          placeholderTextColor="#9AA6C3" 
-          value={email} 
+        <TextInput
+          style={styles.input}
+          placeholder="Email Address"
+          placeholderTextColor="#9AA6C3"
+          value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
-        />
-        
-        <TextInput 
-          style={styles.input} 
-          placeholder="Password" 
-          placeholderTextColor="#9AA6C3" 
-          secureTextEntry 
-          value={password} 
-          onChangeText={setPassword} 
-        />
-        
-        <TextInput 
-          style={styles.input} 
-          placeholder="Confirm Password" 
-          placeholderTextColor="#9AA6C3" 
-          secureTextEntry 
-          value={confirm} 
-          onChangeText={setConfirm} 
+          keyboardType="email-address"
         />
 
-        <TouchableOpacity 
-          style={[styles.primary, loading && { opacity: 0.7 }]} 
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          placeholderTextColor="#9AA6C3"
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder="Confirm Password"
+          placeholderTextColor="#9AA6C3"
+          secureTextEntry
+          value={confirm}
+          onChangeText={setConfirm}
+        />
+
+        <TouchableOpacity
+          style={[styles.primary, loading && { opacity: 0.7 }]}
           onPress={submit}
           disabled={loading}
         >
-          <Text style={styles.btnText}>{loading ? 'Creating Account...' : 'Register'}</Text>
+          <Text style={styles.btnText}>
+            {loading ? 'Creating Account...' : 'Register'}
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.back()} style={styles.footerLink}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.footerLink}
+        >
           <Text style={styles.footerText}>
-            Already have an account? <Text style={styles.link}>Login</Text>
+            Already have an account?{' '}
+            <Text style={styles.link}>Login</Text>
           </Text>
         </TouchableOpacity>
       </View>

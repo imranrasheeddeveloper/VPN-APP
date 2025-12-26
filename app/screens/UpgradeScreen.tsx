@@ -1,12 +1,14 @@
+import { Feather } from '@expo/vector-icons'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
-import { useAuth } from '../../src/hooks/useAuth'
+import type { Purchase } from 'react-native-iap'
 
-import { Feather } from '@expo/vector-icons'
 import {
   Alert,
+  DeviceEventEmitter,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,8 +16,9 @@ import {
   View,
 } from 'react-native'
 import * as RNIap from 'react-native-iap'
+import { useAuth } from '../../src/hooks/useAuth'
+import { verifySubscription } from '../../src/services/subscriptions'
 import { colors } from '../../src/theme'
-
 const IAP: any = RNIap
 
 const SUB_IDS = ['premium_monthly', 'premium_yearly']
@@ -92,39 +95,83 @@ export default function UpgradeScreen() {
    * ================================
    */
   const onBuy = async () => {
-    setBuying(true)
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    setBuying(true);
 
     try {
-      if (Platform.OS !== 'android') {
-        Alert.alert('Android only', 'Google Play Billing works on Android only')
-        return
-      }
-
       const productId =
         selected === 'monthly'
           ? 'premium_monthly'
-          : 'premium_yearly'
+          : 'premium_yearly';
 
       const products = await IAP.fetchProducts({
         skus: [productId],
         type: 'subs',
-      })
+      });
 
-      if (!products || products.length === 0) {
-        Alert.alert('Error', 'Subscription not found')
-        return
+      const purchase = await IAP.requestPurchase({
+        sku: products[0].productId,
+      });
+
+      // 🔐 USER LOGGED IN → VERIFY WITH BACKEND
+      try {
+        await verifySubscription(
+          productId,
+          purchase.purchaseToken,
+        );
+
+        // 🔁 refresh auth state
+        DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED');
+      } catch {
+        // 🟡 NOT LOGGED IN → SAVE FOR RESTORE
+        await AsyncStorage.setItem(
+          'PENDING_PURCHASE_TOKEN',
+          purchase.purchaseToken,
+        );
       }
 
-      await IAP.requestPurchase({
-        sku: products[0].productId,
-      })
+      Alert.alert('Success', 'Premium activated!');
     } catch (e: any) {
-      Alert.alert('Purchase failed', e?.message || 'Please try again')
+      Alert.alert('Purchase failed', e?.message || 'Try again');
     } finally {
-      setBuying(false)
+      setBuying(false);
     }
-  }
+  };
+
+  const onRestore = async () => {
+    try {
+      const purchases = await IAP.getAvailablePurchases();
+
+      if (!purchases.length) {
+        Alert.alert('No purchases found');
+        return;
+      }
+
+      const sub = purchases.find(
+        (p: Purchase) =>
+          p.productId === 'premium_monthly' ||
+          p.productId === 'premium_yearly',
+      );
+
+      if (!sub?.purchaseToken) {
+        Alert.alert('No valid subscription found');
+        return;
+      }
+
+      // 🔐 Save locally for later login
+      await AsyncStorage.setItem(
+        'PENDING_PURCHASE_TOKEN',
+        sub.purchaseToken,
+      );
+
+      Alert.alert(
+        'Purchase restored',
+        'Please login to activate premium',
+      );
+    } catch (e) {
+      Alert.alert('Restore failed', 'Try again later');
+    }
+  };
+
 
   /**
    * ================================
@@ -192,7 +239,7 @@ export default function UpgradeScreen() {
         <Text style={styles.feature}>• Unlimited speed</Text>
         <Text style={styles.feature}>• Premium locations</Text>
         <Text style={styles.feature}>• Priority routing</Text>
-        <Text style={styles.feature}>• Kill switch (coming soon)</Text>
+        <Text style={styles.feature}>• Kill switch</Text>
       </View>
 
       <Pressable
@@ -208,6 +255,10 @@ export default function UpgradeScreen() {
       <Text style={styles.legal}>
         Subscription renews automatically unless canceled 24 hours before renewal.
       </Text>
+
+      <Pressable onPress={onRestore} style={styles.restoreBtn}>
+        <Text style={styles.restoreText}>Restore Purchase</Text>
+      </Pressable>
     </LinearGradient>
   )
 }
@@ -293,5 +344,17 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
   },
+
+  restoreBtn: {
+    marginTop: 10,
+    alignItems: 'center',
+  },
+
+  restoreText: {
+    color: '#9AA6C3',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
 
 })

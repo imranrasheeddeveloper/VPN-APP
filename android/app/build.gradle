@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: 'com.google.gms.google-services'
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
@@ -103,6 +104,8 @@ android {
 
 dependencies {
     implementation("com.facebook.react:react-android")
+    implementation(platform('com.google.firebase:firebase-bom:32.7.0'))
+    implementation('com.google.firebase:firebase-messaging')
 
     // ✅ FIX: Clean WireGuard implementation. 
     // The 'tunnel' library includes everything (backend, crypto, util) automatically.
