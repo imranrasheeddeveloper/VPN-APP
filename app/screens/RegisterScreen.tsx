@@ -41,11 +41,6 @@ export default function RegisterScreen() {
       const res = await login(email, password, deviceId);
       await setToken(res.token);
       router.replace('/screens/ServersScreen');
-
-
-
-      // ✅ go to main app
-      router.replace('/screens/ServersScreen');
     } catch (err) {
       Alert.alert(
         'Registration Failed',

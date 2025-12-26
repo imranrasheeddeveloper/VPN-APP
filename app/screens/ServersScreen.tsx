@@ -1,7 +1,4 @@
 'use client';
-
-'use client';
-
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -9,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   LayoutAnimation,
   Platform,
@@ -18,7 +16,6 @@ import {
   UIManager,
   View,
 } from 'react-native';
-
 import { useAuth } from '../../src/hooks/useAuth'; // 🔴 NEW
 import { listServers } from '../../src/services/servers';
 
@@ -109,10 +106,11 @@ export default function ServersScreen() {
       return;
     }
 
-    router.replace({
+    router.push({
       pathname: '/screens/ConnectScreen',
       params: { server: JSON.stringify(server) },
     });
+
   };
 
   const getMetrics = (load: number) => {
@@ -235,7 +233,11 @@ export default function ServersScreen() {
   return (
     <LinearGradient colors={['#050712', '#070B1D', '#0A1030']} style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backCircle}>
+        <Pressable  onPress={() =>
+          router.canGoBack()
+            ? router.back()
+            : BackHandler.exitApp()
+        } style={styles.backCircle}>
           <Feather name="chevron-left" size={24} color="#EAF0FF" />
         </Pressable>
         <Text style={styles.title}>Select Location</Text>

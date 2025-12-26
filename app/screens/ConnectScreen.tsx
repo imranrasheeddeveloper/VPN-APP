@@ -1,10 +1,9 @@
+import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useAuth } from '../../src/hooks/useAuth';
-
-import { Feather } from '@expo/vector-icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +17,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useAuth } from '../../src/hooks/useAuth';
 import { useVpnHeartbeat } from '../../src/hooks/useVpnHeartbeat';
 import {
   connectVPN,
@@ -58,8 +58,10 @@ export default function ConnectScreen() {
   const [checking, setChecking] = useState(true)
   const [sessionId, setSessionId] = useState<number | null>(null)
   const { isLoggedIn, email, plan } = useAuth()
-   const [stats, setStats] = useState({ down: 0, up: 0 });
-const initRef = useRef(false);
+  const [stats, setStats] = useState({ down: 0, up: 0 });
+  const initRef = useRef(false);
+  const isUserConnectingRef = useRef(false);
+
 
   useVpnHeartbeat(connected, sessionId);
 
@@ -117,9 +119,9 @@ const initRef = useRef(false);
   }, []);
 
 
-  useEffect(() => {
-    if (!server) router.push('/screens/ServersScreen')
-  }, [server])
+  // useEffect(() => {
+  //   if (!server) router.push('/screens/ServersScreen')
+  // }, [server])
 
   /* ================= INITIALIZATION LOGIC ================= */
   useEffect(() => {
@@ -148,16 +150,23 @@ const initRef = useRef(false);
         await disconnectVPN();
         setConnected(false);
       } 
-      else if (vpnStatus === 'DOWN' && hasApiSession) {
+      else if (
+        vpnStatus === 'DOWN' &&
+        hasApiSession &&
+        !isUserConnectingRef.current // ✅ BLOCK RACE
+      ) {
         await disconnectSession(sessions[0].id).catch(() => {});
         setConnected(false);
         setSessionId(null);
-      } else {
+      }
+      else {
         setConnected(false);
         setSessionId(null);
       }
-    } catch (e) {
-      console.log('❌ Init Error:', e);
+    } catch (e: any) {
+      isUserConnectingRef.current = false; // ✅ ADD
+      setLoading(false);
+      Alert.alert('Error', e?.message || 'Unable to connect');
     } finally {
       setChecking(false);
     }
@@ -172,34 +181,53 @@ const initRef = useRef(false);
     const subscription = DeviceEventEmitter.addListener(
       'VPN_STATUS_CHANGE',
       (status) => {
-        console.log('🔔 VPN STATUS EVENT:', status)
-        if (status === 'UP') {
-          setConnected(true)
-          setLoading(false)
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+        console.log('🔔 VPN STATUS EVENT:', status);
+
+        // 🔒 Ignore DOWN events while user is connecting
+        if (status === 'DOWN' && isUserConnectingRef.current) {
+          console.log('⏳ Ignoring DOWN during connect');
+          return;
         }
+
+        if (status === 'UP') {
+          isUserConnectingRef.current = false;
+          setConnected(true);
+          setLoading(false);
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success
+          ).catch(() => {});
+        }
+
         if (status === 'DOWN') {
-          setConnected(false)
-          setLoading(false)
-          setSessionId(null)
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {})
+          isUserConnectingRef.current = false;
+          setConnected(false);
+          setLoading(false);
+          setSessionId(null);
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Warning
+          ).catch(() => {});
         }
       }
-    )
-    return () => subscription.remove()
-  }, [])
+    );
+
+    return () => subscription.remove();
+  }, []);
+
 
  
   /* ================= CONNECT ACTION ================= */
   const onConnect = async () => {
     if (!server) return;
+    isUserConnectingRef.current = true;
     setLoading(true);
     
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
     try {
       // 1. Ensure any old instance is fully killed first
-      await disconnectVPN().catch(() => {});
+      if (connected) {
+        await disconnectVPN().catch(() => {});
+      }
       
       // 2. Request Android Permission
       const isReady = await prepareVPN();
@@ -256,22 +284,38 @@ const initRef = useRef(false);
   }
 
   /* ================= ANDROID BACK BUTTON ================= */
-  useEffect(() => {
-    const onBackPress = () => {
-      if (loading) return true;
-      if (connected) {
-        Alert.alert('Disconnect?', 'Close VPN before leaving?', [
-          { text: 'Stay', style: 'cancel' },
-          { text: 'Disconnect', style: 'destructive', onPress: onDisconnect },
-        ]);
-        return true;
-      }
-      router.push('/screens/ServersScreen');
-      return true;
-    };
-    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-    return () => sub.remove();
-  }, [connected, loading, sessionId]);
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (loading) return true;
+
+        if (connected) {
+          Alert.alert(
+            'Disconnect?',
+            'Close VPN before leaving?',
+            [
+              { text: 'Stay', style: 'cancel' },
+              {
+                text: 'Disconnect',
+                style: 'destructive',
+                onPress: onDisconnect,
+              },
+            ]
+          );
+          return true; // block exit
+        }
+
+        return false; // allow system back
+      };
+
+      const sub = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onBackPress
+      );
+
+      return () => sub.remove(); // 🔥 removed when screen loses focus
+    }, [connected, loading])
+  );
 
 
 

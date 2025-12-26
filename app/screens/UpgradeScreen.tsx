@@ -74,7 +74,9 @@ export default function UpgradeScreen() {
       IAP.endConnection()
     }
   }, [])
-
+// useEffect(() => {
+//   console.log('🧾 RN-IAP methods:', Object.keys(IAP));
+// }, []);
   /**
    * ================================
    * AUTO-RETURN AFTER PREMIUM
@@ -82,7 +84,7 @@ export default function UpgradeScreen() {
    */
   useEffect(() => {
     if (plan === 'premium' && targetServer) {
-      router.replace({
+      router.push({
         pathname: '/screens/ConnectScreen',
         params: { server: targetServer },
       })
@@ -95,47 +97,66 @@ export default function UpgradeScreen() {
    * ================================
    */
   const onBuy = async () => {
-    setBuying(true);
+  setBuying(true);
+
+  try {
+    const productId =
+      selected === 'monthly'
+        ? 'premium_monthly'
+        : 'premium_yearly';
+
+    // ✅ Fetch subscription product (this is correct for your API)
+    const products = await IAP.fetchProducts({
+      skus: [productId],
+    });
+
+    console.log('🛒 Products:', products);
+
+    if (!products || products.length === 0) {
+      throw new Error('Subscription product not found');
+    }
+
+    // ✅ Request purchase (subscriptions included)
+    const purchase = await IAP.requestPurchase({
+      sku: productId,
+    });
+
+    console.log('💳 Purchase:', purchase);
+
+    // ✅ Finish / acknowledge purchase (MANDATORY on Android)
+    await IAP.finishTransaction({
+      purchase,
+      isConsumable: false,
+    });
 
     try {
-      const productId =
-        selected === 'monthly'
-          ? 'premium_monthly'
-          : 'premium_yearly';
+      await verifySubscription(
+        productId,
+        purchase.purchaseToken,
+      );
 
-      const products = await IAP.fetchProducts({
-        skus: [productId],
-        type: 'subs',
-      });
-
-      const purchase = await IAP.requestPurchase({
-        sku: products[0].productId,
-      });
-
-      // 🔐 USER LOGGED IN → VERIFY WITH BACKEND
-      try {
-        await verifySubscription(
-          productId,
-          purchase.purchaseToken,
-        );
-
-        // 🔁 refresh auth state
-        DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED');
-      } catch {
-        // 🟡 NOT LOGGED IN → SAVE FOR RESTORE
-        await AsyncStorage.setItem(
-          'PENDING_PURCHASE_TOKEN',
-          purchase.purchaseToken,
-        );
-      }
-
-      Alert.alert('Success', 'Premium activated!');
-    } catch (e: any) {
-      Alert.alert('Purchase failed', e?.message || 'Try again');
-    } finally {
-      setBuying(false);
+      DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED');
+    } catch {
+      await AsyncStorage.setItem(
+        'PENDING_PURCHASE_TOKEN',
+        purchase.purchaseToken,
+      );
     }
-  };
+
+    Alert.alert('Success', 'Premium activated!');
+  } catch (e: any) {
+    console.log('❌ Purchase error:', e);
+    Alert.alert(
+      'Purchase failed',
+      e?.message || 'Try again'
+    );
+  } finally {
+    setBuying(false);
+  }
+};
+
+
+
 
   const onRestore = async () => {
     try {
