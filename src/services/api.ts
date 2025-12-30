@@ -2,7 +2,7 @@ import axios from 'axios'
 import { getToken } from '../storage/token'
 
 export const API = axios.create({
-  baseURL: 'http://157.173.126.219:4000/api',
+  baseURL: 'https://vpn.itridtechnologies.com/api',
   timeout: 15000,
 })
 
