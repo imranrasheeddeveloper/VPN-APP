@@ -1,6 +1,4 @@
-<manifest
-  xmlns:android="http://schemas.android.com/apk/res/android"
-  xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
@@ -22,11 +20,7 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/3cf346a8-c011-49c7-9c9e-f00ad82c93f5"/>
     <meta-data android:name="expo.modules.updates.EXPO_RUNTIME_VERSION" android:value="@string/expo_runtime_version"/>
-    
-    <meta-data
-    android:name="com.google.android.gms.ads.APPLICATION_ID"
-    android:value="ca-app-pub-1140863366083907~3541145323"
-    tools:replace="android:value"/>
+    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-1140863366083907~3541145323" tools:replace="android:value"/>
     <receiver android:name=".vpn.BootReceiver" android:enabled="true" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED"/>
