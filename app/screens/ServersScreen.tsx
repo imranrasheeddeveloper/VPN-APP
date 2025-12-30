@@ -3,6 +3,8 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
+import { useAppSettings } from '../../src/hooks/useAppSettings';
+
 import {
   ActivityIndicator,
   Alert,
@@ -47,6 +49,7 @@ export default function ServersScreen() {
   const [expandedCountry, setExpandedCountry] = useState<string | null>(null);
 
   const { plan } = useAuth(); // 🔴 NEW
+  const { isInAppPurchaseEnabled } = useAppSettings();
 
   useEffect(() => {
     const loadServers = async () => {
@@ -85,9 +88,16 @@ export default function ServersScreen() {
     setExpandedCountry(expandedCountry === country ? null : country);
   };
 
-  // ✅ ONLY LOGIC CHANGE IS HERE
   const selectServer = (server: Server) => {
     if (server.isPremium && plan !== 'premium') {
+      if (!isInAppPurchaseEnabled) {
+        Alert.alert(
+          'Premium Server',
+          'Premium servers are currently unavailable.'
+        );
+        return;
+      }
+
       Alert.alert(
         'Premium Server',
         'Upgrade to Premium to access this server.',
@@ -110,8 +120,8 @@ export default function ServersScreen() {
       pathname: '/screens/ConnectScreen',
       params: { server: JSON.stringify(server) },
     });
-
   };
+
 
   const getMetrics = (load: number) => {
     if (load > 0.8) return { color: '#ef4444', label: 'High', bars: 1 };

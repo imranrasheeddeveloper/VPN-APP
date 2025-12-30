@@ -4,6 +4,8 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAppSettings } from '../../src/hooks/useAppSettings';
+
 import {
   ActivityIndicator,
   Alert,
@@ -52,7 +54,7 @@ export default function ConnectScreen() {
       return null
     }
   }, [params.server])
-
+  const { isInAppPurchaseEnabled } = useAppSettings();
   const [connected, setConnected] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
@@ -61,6 +63,7 @@ export default function ConnectScreen() {
   const [stats, setStats] = useState({ down: 0, up: 0 });
   const initRef = useRef(false);
   const isUserConnectingRef = useRef(false);
+  const connectInProgressRef = useRef(false);
 
 
   useVpnHeartbeat(connected, sessionId);
@@ -183,13 +186,14 @@ export default function ConnectScreen() {
       (status) => {
         console.log('🔔 VPN STATUS EVENT:', status);
 
-        // 🔒 Ignore DOWN events while user is connecting
-        if (status === 'DOWN' && isUserConnectingRef.current) {
-          console.log('⏳ Ignoring DOWN during connect');
+        // 🚫 HARD BLOCK DOWN during connect
+        if (connectInProgressRef.current && status === 'DOWN') {
+          console.log('⏳ Ignoring DOWN (connect in progress)');
           return;
         }
 
         if (status === 'UP') {
+          connectInProgressRef.current = false;
           isUserConnectingRef.current = false;
           setConnected(true);
           setLoading(false);
@@ -198,8 +202,8 @@ export default function ConnectScreen() {
           ).catch(() => {});
         }
 
-        if (status === 'DOWN') {
-          isUserConnectingRef.current = false;
+        if (status === 'DOWN' && !connectInProgressRef.current) {
+          cleanupFailedConnection('Unexpected VPN DOWN');
           setConnected(false);
           setLoading(false);
           setSessionId(null);
@@ -213,11 +217,52 @@ export default function ConnectScreen() {
     return () => subscription.remove();
   }, []);
 
+  const waitForVpnUp = async (timeoutMs = 8000) => {
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      const status = await getVpnStatus();
+      console.log('🔁 Poll VPN status:', status);
+
+      if (status === 'UP') {
+        return true;
+      }
+
+      await new Promise(res => setTimeout(res, 500));
+    }
+
+    return false;
+  };
+
+  const cleanupFailedConnection = async (reason?: string) => {
+    console.log('🧹 Cleanup failed connection:', reason);
+
+    connectInProgressRef.current = false;
+    isUserConnectingRef.current = false;
+    setLoading(false);
+    setConnected(false);
+
+    if (sessionId) {
+      try {
+        await disconnectSession(sessionId);
+        console.log('🧹 Backend session closed:', sessionId);
+      } catch (e) {
+        console.log('⚠️ Failed to close backend session', e);
+      } finally {
+        setSessionId(null);
+      }
+    }
+
+    // Ensure native tunnel is down
+    await disconnectVPN().catch(() => {});
+  };
+
 
  
   /* ================= CONNECT ACTION ================= */
   const onConnect = async () => {
     if (!server) return;
+    connectInProgressRef.current = true;
     isUserConnectingRef.current = true;
     setLoading(true);
     
@@ -232,9 +277,10 @@ export default function ConnectScreen() {
       // 2. Request Android Permission
       const isReady = await prepareVPN();
       if (!isReady) {
-        setLoading(false);
+        await cleanupFailedConnection('VPN permission denied');
         return;
       }
+
 
       // 3. Start Backend Session
       const res = await connectSession(server.id);
@@ -247,19 +293,49 @@ export default function ConnectScreen() {
       // 5. Start Native Tunnel
       await connectVPN(res.config);
 
-      // Timeout safety: if no 'UP' event in 12 seconds
-      setTimeout(() => {
-        setLoading(current => {
-          if (current) {
-            Alert.alert('Connection Timeout', 'The server is not responding. Please try again.');
-            return false;
-          }
-          return current;
-        });
-      }, 12000);
+      // 🔁 Fallback: poll VPN status (Android cold start fix)
+      const isUp = await waitForVpnUp();
+
+      if (isUp) {
+        connectInProgressRef.current = false;
+        isUserConnectingRef.current = false;
+        setConnected(true);
+        setLoading(false);
+
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        ).catch(() => {});
+        return;
+      }
+
+      await cleanupFailedConnection('VPN did not reach UP');
+
+      Alert.alert(
+        'Connection Failed',
+        'Unable to establish a secure tunnel. Please try again.'
+      );
+
+      return;
+
+
+      // // Timeout safety: if no 'UP' event in 12 seconds
+      // setTimeout(() => {
+      //   setLoading(current => {
+      //     if (current) {
+      //       cleanupFailedConnection('Connection timeout');
+      //       Alert.alert(
+      //         'Connection Timeout',
+      //         'The server is not responding. Please try again.'
+      //       );
+      //       return false;
+      //     }
+      //     return current;
+      //   });
+      // }, 12000);
 
     } catch (e: any) {
       setLoading(false);
+      await cleanupFailedConnection('Exception thrown');
       Alert.alert('Error', e?.message || 'Unable to connect');
     }
   }
@@ -365,7 +441,7 @@ export default function ConnectScreen() {
               <Feather name="shield" size={12} color="#22c55e" />
               <Text style={styles.proActiveText}>Premium Active</Text>
             </View>
-          ) : (
+          ) : isInAppPurchaseEnabled ? (
             <Pressable
               onPress={() => router.push('/screens/UpgradeScreen')}
               style={styles.proButton}
@@ -373,7 +449,8 @@ export default function ConnectScreen() {
               <Feather name="zap" size={12} color="#0B1224" />
               <Text style={styles.proText}>Upgrade</Text>
             </Pressable>
-          )}
+          ) : null}
+
         </View>
 
       <View style={styles.header}>

@@ -22,3 +22,10 @@ export async function getMySubscription() {
   const res = await API.get('/subscriptions/me');
   return res.data;
 }
+
+export async function getAppSettings() {
+  const res = await API.get('/app-settings');
+  return res.data as {
+    isInAppPurchaseEnabled: boolean;
+  };
+}
