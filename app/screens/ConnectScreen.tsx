@@ -4,8 +4,6 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAppSettings } from '../../src/hooks/useAppSettings';
-
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +17,14 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import mobileAds, {
+  AdEventType,
+  BannerAd,
+  BannerAdSize,
+  InterstitialAd,
+  TestIds
+} from 'react-native-google-mobile-ads';
+import { useAppSettings } from '../../src/hooks/useAppSettings';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useVpnHeartbeat } from '../../src/hooks/useVpnHeartbeat';
 import {
@@ -46,6 +52,9 @@ type Server = {
 }
 
 export default function ConnectScreen() {
+  const interstitialUnitId = __DEV__ ? TestIds.INTERSTITIAL : 'ca-app-pub-1140863366083907/8985345010';
+  const bannerUnitId = __DEV__ ? TestIds.BANNER : 'ca-app-pub-1140863366083907/7616423023';
+  const interstitialRef = useRef<InterstitialAd | null>(null);
   const params = useLocalSearchParams<{ server?: string }>()
   const server: Server | null = useMemo(() => {
     try {
@@ -64,8 +73,8 @@ export default function ConnectScreen() {
   const initRef = useRef(false);
   const isUserConnectingRef = useRef(false);
   const connectInProgressRef = useRef(false);
-
-
+  const [adLoaded, setAdLoaded] = useState(false);
+  const [isAdInitialized, setIsAdInitialized] = useState(false);
   useVpnHeartbeat(connected, sessionId);
 
   /* ================= ANIMATIONS ================= */
@@ -90,6 +99,56 @@ export default function ConnectScreen() {
       useNativeDriver: true,
     }).start()
   }, [connected, glow])
+
+
+  useEffect(() => {
+  let unsubscribe: (() => void) | undefined;
+  let isMounted = true;
+
+  const initializeAds = async () => {
+    try {
+      await mobileAds().initialize();
+      
+      if (!isMounted) return;
+      
+      setIsAdInitialized(true);
+
+      const ad = InterstitialAd.createForAdRequest(interstitialUnitId, {
+        requestNonPersonalizedAdsOnly: false,
+      });
+      
+      interstitialRef.current = ad;
+
+      unsubscribe = ad.addAdEventListener(AdEventType.LOADED, () => {
+        if (isMounted) {
+          setAdLoaded(true);
+        }
+      });
+
+      // Add error listener
+      const errorListener = ad.addAdEventListener(AdEventType.ERROR, (error) => {
+        console.log('Ad failed to load:', error);
+        if (isMounted) {
+          setAdLoaded(false);
+        }
+      });
+
+      ad.load();
+
+      return errorListener;
+    } catch (error) {
+      console.error('Failed to initialize ads:', error);
+    }
+  };
+
+  const errorListener = initializeAds();
+
+  return () => {
+    isMounted = false;
+    unsubscribe?.();
+    errorListener?.then(listener => listener?.());
+  };
+}, [interstitialUnitId]);
 
   /* ================= NAVIGATION ================= */
   const changeServer = () => {
@@ -261,6 +320,12 @@ export default function ConnectScreen() {
  
   /* ================= CONNECT ACTION ================= */
   const onConnect = async () => {
+    if (interstitialRef.current && adLoaded && plan !== 'premium') {
+      interstitialRef.current.show();
+      setAdLoaded(false);
+      interstitialRef.current.load();
+    }
+
     if (!server) return;
     connectInProgressRef.current = true;
     isUserConnectingRef.current = true;
@@ -490,6 +555,15 @@ export default function ConnectScreen() {
           )}
         </View>
       </View>
+
+      {plan !== 'premium' && isAdInitialized && (
+        <View style={{ alignItems: 'center', marginBottom: 10 }}>
+          <BannerAd
+          unitId={bannerUnitId}
+          size={BannerAdSize.BANNER}
+        />
+        </View>
+      )}
 
       <TouchableOpacity
         disabled={loading || checking}

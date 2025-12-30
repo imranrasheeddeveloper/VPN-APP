@@ -13,6 +13,10 @@ import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import android.content.pm.ServiceInfo
 import android.util.Log
+import android.os.Handler
+import android.os.Looper
+import android.os.ParcelFileDescriptor
+import java.io.ByteArrayInputStream
 
 class SecureNestVpnService : VpnService() {
 
@@ -20,8 +24,12 @@ class SecureNestVpnService : VpnService() {
     private val notificationId = 1
     private lateinit var backend: GoBackend
     private val tunnel = WgTunnel()
+    private var lastConfig: String? = null
+    private var vpnInterface: ParcelFileDescriptor? = null
+
 
     companion object {
+        var pendingConfig: String? = null
         const val TAG = "SecureNestVpnService"
         var reactContext: ReactApplicationContext? = null
         
@@ -36,9 +44,15 @@ class SecureNestVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val configString = intent?.getStringExtra("config")
-        
+
+        val incomingConfig = intent?.getStringExtra("config")
+        if (incomingConfig != null) {
+            lastConfig = incomingConfig
+        }
+
+        val configString = lastConfig
         if (configString == null) {
+            Log.e(TAG, "No VPN config available")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -46,33 +60,49 @@ class SecureNestVpnService : VpnService() {
         startForegroundServiceWithNotification()
 
         try {
-            // 1. Create the system Rules (The Builder)
             val builder = Builder()
-            
-            // 2. THE KILL SWITCH: This tells Android "If the VPN isn't active, block internet"
-            builder.setBlocking(true) 
-            
-            // 3. SPLIT TUNNELING: Keep your app outside so it can still talk to your API
             builder.addDisallowedApplication(packageName)
 
-            // 4. ESTABLISH: This "locks in" the rules with the Android System
-            // We use a dummy session name. 
-            builder.setSession("SecureNest")
-                .addAddress("10.0.0.2", 32)
-                .establish() 
+            vpnInterface?.close()
+            vpnInterface = null
 
-            // 5. START WIREGUARD: Now that the "gate" is set up, let WireGuard flow through it
-            val config = Config.parse(configString.byteInputStream())
-            backend.setState(tunnel, Tunnel.State.UP, config)
-            
+            vpnInterface = builder
+                .setSession("SecureNest")
+                .addAddress("10.0.0.2", 32)
+                .establish()
+
+            if (vpnInterface == null) {
+                sendStatus("DOWN")
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
+            val config = Config.parse(
+                ByteArrayInputStream(configString.toByteArray())
+            )
+
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    backend.setState(tunnel, Tunnel.State.UP, config)
+                    vpnState = "UP"
+                    sendStatus("UP")
+                } catch (e: Exception) {
+                    Log.e(TAG, "WireGuard failed: ${e.message}")
+                    sendStatus("DOWN")
+                    stopSelf()
+                }
+            }, 1000)
+
         } catch (e: Exception) {
-            Log.e(TAG, "Error: ${e.message}")
+            Log.e(TAG, "VPN error: ${e.message}")
             sendStatus("DOWN")
             stopSelf()
         }
 
         return START_STICKY
     }
+
+
 
     // This is vital: WireGuard's GoBackend calls this to ensure its 
     // own traffic doesn't get looped into the VPN.
@@ -137,6 +167,7 @@ class SecureNestVpnService : VpnService() {
         SecureNestVpnService.vpnState = "DOWN"
         sendStatus("DOWN")
     }
+
 
     private fun sendStatus(status: String) {
         val context = reactContext

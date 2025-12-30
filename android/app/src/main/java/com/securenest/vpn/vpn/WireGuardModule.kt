@@ -18,7 +18,10 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     private val mActivityEventListener = object : BaseActivityEventListener() {
         override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
             if (requestCode == 0 && resultCode == Activity.RESULT_OK) {
-                pendingConfig?.let { startVpnService(it) }
+                // 🔔 Notify JS permission is granted
+                reactApplicationContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("VPN_PERMISSION_GRANTED", null)
             }
             pendingConfig = null
         }
@@ -79,17 +82,20 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     @ReactMethod
     fun prepare(promise: Promise) {
         val activity = reactApplicationContext.currentActivity
-        if (activity == null) {
-            promise.reject("NO_ACTIVITY", "Activity is null")
-            return
-        }
+            ?: run {
+                promise.reject("NO_ACTIVITY", "Activity is null")
+                return
+            }
 
         val intent = VpnService.prepare(activity)
+
         if (intent != null) {
+            // Permission REQUIRED — user dialog will appear
             activity.startActivityForResult(intent, 0)
-            promise.resolve(false) 
+            promise.resolve("REQUESTED")
         } else {
-            promise.resolve(true) 
+            // Permission already granted
+            promise.resolve("GRANTED")
         }
     }
 
@@ -112,13 +118,15 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         reactApplicationContext.startService(intent)
     }
 
-    @ReactMethod
+   @ReactMethod
     fun disconnect(promise: Promise) {
         handler.removeCallbacks(speedUpdater)
+        SecureNestVpnService.pendingConfig = null // ✅ clear ONLY on user disconnect
         val intent = Intent(reactApplicationContext, SecureNestVpnService::class.java)
         reactApplicationContext.stopService(intent)
         promise.resolve(true)
     }
+
 
     @ReactMethod
     fun getStatus(promise: Promise) {
