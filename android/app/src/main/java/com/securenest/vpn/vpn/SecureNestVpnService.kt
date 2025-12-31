@@ -17,6 +17,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import java.io.ByteArrayInputStream
+import com.facebook.react.bridge.Arguments
+import com.wireguard.android.backend.Statistics
 
 class SecureNestVpnService : VpnService() {
 
@@ -26,6 +28,9 @@ class SecureNestVpnService : VpnService() {
     private val tunnel = WgTunnel()
     private var lastConfig: String? = null
     private var vpnInterface: ParcelFileDescriptor? = null
+    private val statsHandler = Handler(Looper.getMainLooper())
+    private var lastRxBytes: Long = 0
+    private var lastTxBytes: Long = 0
 
 
     companion object {
@@ -82,16 +87,21 @@ class SecureNestVpnService : VpnService() {
             )
 
             Handler(Looper.getMainLooper()).postDelayed({
-                try {
-                    backend.setState(tunnel, Tunnel.State.UP, config)
-                    vpnState = "UP"
-                    sendStatus("UP")
-                } catch (e: Exception) {
-                    Log.e(TAG, "WireGuard failed: ${e.message}")
-                    sendStatus("DOWN")
-                    stopSelf()
-                }
-            }, 1000)
+            try {
+                backend.setState(tunnel, Tunnel.State.UP, config)
+                vpnState = "UP"
+                sendStatus("UP")
+
+                // ✅ START LIVE STATS HERE
+                statsHandler.post(statsRunnable)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "WireGuard failed: ${e.message}")
+                sendStatus("DOWN")
+                stopSelf()
+            }
+        }, 1000)
+
 
         } catch (e: Exception) {
             Log.e(TAG, "VPN error: ${e.message}")
@@ -109,6 +119,37 @@ class SecureNestVpnService : VpnService() {
     override fun protect(socket: Int): Boolean {
         return super.protect(socket)
     }
+
+    private val statsRunnable = object : Runnable {
+        override fun run() {
+            try {
+                val stats: Statistics = backend.getStatistics(tunnel)
+
+                val rxBytes = stats.totalRx()
+                val txBytes = stats.totalTx()
+
+                val downSpeed = rxBytes - lastRxBytes
+                val upSpeed = txBytes - lastTxBytes
+
+                lastRxBytes = rxBytes
+                lastTxBytes = txBytes
+
+                val params = Arguments.createMap()
+                params.putDouble("down", downSpeed.toDouble())
+                params.putDouble("up", upSpeed.toDouble())
+
+                reactContext
+                    ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    ?.emit("VPN_STATS", params)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Stats error: ${e.message}")
+            }
+
+            statsHandler.postDelayed(this, 1000)
+        }
+    }
+
 
     private fun startForegroundServiceWithNotification() {
         val notification = NotificationCompat.Builder(this, channelId)
@@ -148,12 +189,14 @@ class SecureNestVpnService : VpnService() {
 
     override fun onRevoke() {
         Log.i(TAG, "VPN Permission revoked by system")
+        statsHandler.removeCallbacks(statsRunnable)
         disconnectTunnel()
         super.onRevoke()
     }
 
     override fun onDestroy() {
         Log.i(TAG, "Service destroyed")
+        statsHandler.removeCallbacks(statsRunnable)
         disconnectTunnel()
         super.onDestroy()
     }
@@ -164,6 +207,9 @@ class SecureNestVpnService : VpnService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error during disconnect: ${e.message}")
         }
+        statsHandler.removeCallbacks(statsRunnable)
+        lastRxBytes = 0
+        lastTxBytes = 0
         SecureNestVpnService.vpnState = "DOWN"
         sendStatus("DOWN")
     }

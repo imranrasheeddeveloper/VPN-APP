@@ -32,49 +32,14 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         SecureNestVpnService.reactContext = reactContext
     }
 
-    // FIXED: The Module doesn't own the 'tunnel' or 'backend'. 
-    // We should only run this if the service is alive.
-    private val speedUpdater = object : Runnable {
-        override fun run() {
-            try {
-                // We cannot access 'tunnel' directly because it belongs to the Service class.
-                // For now, let's keep the logic but you'll need a way to pull 
-                // stats from the Service instance.
-                
-                // Example of how to emit correctly:
-                val params = Arguments.createMap()
-                params.putDouble("down", 0.0) 
-                params.putDouble("up", 0.0)
-                
-                reactApplicationContext
-                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                    .emit("VPN_STATS", params)
-                    
-                handler.postDelayed(this, 1000)
-            } catch (e: Exception) {
-                Log.e("WireGuardModule", "Stats error: ${e.message}")
-            }
-        }
-    }
-
     @ReactMethod
     fun startStats() {
-        // Stop any existing loop first to prevent multiple timers
-        handler.removeCallbacks(speedUpdater)
-        handler.post(speedUpdater)
+       
     }
 
     @ReactMethod
     fun stopStats() {
-        handler.removeCallbacks(speedUpdater)
-        
-        // Optional: Send one last 0.0 update to clear the UI
-        val params = Arguments.createMap()
-        params.putDouble("down", 0.0)
-        params.putDouble("up", 0.0)
-        reactApplicationContext
-            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-            .emit("VPN_STATS", params)
+
     }
 
     override fun getName(): String = "WireGuardModule"
@@ -105,7 +70,6 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
             pendingConfig = config
             startVpnService(config)
             // Start the speed updater when connecting
-            handler.post(speedUpdater)
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("CONNECT_ERROR", e.message)
@@ -120,8 +84,7 @@ class WireGuardModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
 
    @ReactMethod
     fun disconnect(promise: Promise) {
-        handler.removeCallbacks(speedUpdater)
-        SecureNestVpnService.pendingConfig = null // ✅ clear ONLY on user disconnect
+        SecureNestVpnService.pendingConfig = null
         val intent = Intent(reactApplicationContext, SecureNestVpnService::class.java)
         reactApplicationContext.stopService(intent)
         promise.resolve(true)
