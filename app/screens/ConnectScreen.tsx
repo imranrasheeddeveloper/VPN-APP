@@ -75,6 +75,10 @@ export default function ConnectScreen() {
   const connectInProgressRef = useRef(false);
   const [adLoaded, setAdLoaded] = useState(false);
   const [isAdInitialized, setIsAdInitialized] = useState(false);
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 2;
+  const vpnConfigRef = useRef<string | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
   useVpnHeartbeat(connected, sessionId);
 
   /* ================= ANIMATIONS ================= */
@@ -245,31 +249,37 @@ export default function ConnectScreen() {
       (status) => {
         console.log('🔔 VPN STATUS EVENT:', status);
 
-        // 🚫 HARD BLOCK DOWN during connect
-        if (connectInProgressRef.current && status === 'DOWN') {
-          console.log('⏳ Ignoring DOWN (connect in progress)');
-          return;
-        }
-
         if (status === 'UP') {
+          if (retryTimerRef.current) {
+            clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = null;
+          }
+
+          retryCountRef.current = 0;
           connectInProgressRef.current = false;
           isUserConnectingRef.current = false;
           setConnected(true);
           setLoading(false);
+
           Haptics.notificationAsync(
             Haptics.NotificationFeedbackType.Success
           ).catch(() => {});
         }
 
-        if (status === 'DOWN' && !connectInProgressRef.current) {
-          cleanupFailedConnection('Unexpected VPN DOWN');
-          setConnected(false);
-          setLoading(false);
-          setSessionId(null);
-          Haptics.notificationAsync(
-            Haptics.NotificationFeedbackType.Warning
-          ).catch(() => {});
+
+        if (status === 'DOWN' && connectInProgressRef.current) {
+          console.log('⚠️ VPN DOWN during connect — retrying');
+
+          retryTimerRef.current = setTimeout(() => {
+            retryNativeVpn();
+          }, 1000);
+
+          return;
         }
+
+        
+
+        
       }
     );
 
@@ -293,7 +303,10 @@ export default function ConnectScreen() {
     return false;
   };
 
-  const cleanupFailedConnection = async (reason?: string) => {
+  const cleanupFailedConnection = async (
+    reason?: string,
+    keepSession = false
+  ) => {
     console.log('🧹 Cleanup failed connection:', reason);
 
     connectInProgressRef.current = false;
@@ -301,20 +314,43 @@ export default function ConnectScreen() {
     setLoading(false);
     setConnected(false);
 
-    if (sessionId) {
+    if (sessionId && !keepSession) {
       try {
         await disconnectSession(sessionId);
-        console.log('🧹 Backend session closed:', sessionId);
-      } catch (e) {
-        console.log('⚠️ Failed to close backend session', e);
-      } finally {
-        setSessionId(null);
-      }
+      } catch {}
+      setSessionId(null);
     }
 
-    // Ensure native tunnel is down
     await disconnectVPN().catch(() => {});
   };
+
+  const retryNativeVpn = async () => {
+    if (!vpnConfigRef.current) return;
+
+    if (retryCountRef.current >= MAX_RETRIES) {
+      console.log('❌ VPN retries exhausted');
+      await cleanupFailedConnection('Retry exhausted');
+      Alert.alert(
+        'Connection Failed',
+        'Unable to establish VPN connection. Please try again.'
+      );
+      return;
+    }
+
+    retryCountRef.current += 1;
+    console.log(`🔁 Retrying VPN (${retryCountRef.current}/${MAX_RETRIES})`);
+
+    await cleanupFailedConnection('Retrying native VPN', true);
+
+    connectInProgressRef.current = true;
+    isUserConnectingRef.current = true;
+    setLoading(true);
+
+    await new Promise(r => setTimeout(r, 800));
+    await connectVPN(vpnConfigRef.current);
+  };
+
+
 
 
  
@@ -349,8 +385,11 @@ export default function ConnectScreen() {
 
       // 3. Start Backend Session
       const res = await connectSession(server.id);
-      console.log('✅ API SESSION STARTED:', res.sessionId);
       setSessionId(res.sessionId);
+      vpnConfigRef.current = res.config;
+      retryCountRef.current = 0;
+      console.log('✅ API SESSION STARTED:', res.sessionId);
+      
 
       // 4. CRITICAL: Small delay to ensure Android Service intent is ready
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -361,24 +400,23 @@ export default function ConnectScreen() {
       // 🔁 Fallback: poll VPN status (Android cold start fix)
       const isUp = await waitForVpnUp();
 
+
       if (isUp) {
+        retryCountRef.current = 0;
         connectInProgressRef.current = false;
         isUserConnectingRef.current = false;
         setConnected(true);
         setLoading(false);
-
-        Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success
-        ).catch(() => {});
         return;
       }
 
-      await cleanupFailedConnection('VPN did not reach UP');
+      if (retryCountRef.current >= MAX_RETRIES) {
 
-      Alert.alert(
-        'Connection Failed',
-        'Unable to establish a secure tunnel. Please try again.'
-      );
+          Alert.alert(
+            'Connection Failed',
+            'Unable to establish a secure tunnel. Please try again.'
+          );
+      }
 
       return;
 
