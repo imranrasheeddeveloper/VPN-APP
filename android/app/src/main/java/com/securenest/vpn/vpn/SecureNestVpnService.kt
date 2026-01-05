@@ -50,31 +50,56 @@ class SecureNestVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 
-        val incomingConfig = intent?.getStringExtra("config")
-        if (incomingConfig != null) {
-            lastConfig = incomingConfig
-        }
+    val incomingConfig = intent?.getStringExtra("config")
+    if (incomingConfig != null) {
+        lastConfig = incomingConfig
+    }
 
-        val configString = lastConfig
-        if (configString == null) {
-            Log.e(TAG, "No VPN config available")
-            stopSelf()
-            return START_NOT_STICKY
-        }
+    val configString = lastConfig
+    if (configString == null) {
+        Log.e(TAG, "No VPN config available")
+        stopSelf()
+        return START_NOT_STICKY
+    }
 
-        startForegroundServiceWithNotification()
+    startForegroundServiceWithNotification()
 
         try {
-            val builder = Builder()
-            builder.addDisallowedApplication(packageName)
-
+            // 🔥 FULL CLEANUP (CRITICAL)
             vpnInterface?.close()
             vpnInterface = null
+            backend.setState(tunnel, Tunnel.State.DOWN, null)
 
-            vpnInterface = builder
+            // 🔑 Parse WireGuard config
+            val config = Config.parse(
+                ByteArrayInputStream(configString.toByteArray())
+            )
+
+            val builder = Builder()
                 .setSession("SecureNest")
-                .addAddress("10.0.0.2", 32)
-                .establish()
+
+            // 🔒 Do NOT tunnel app traffic into itself
+            builder.addDisallowedApplication(packageName)
+
+            // 🌍 FULL TUNNEL (MOST IMPORTANT FIX)
+            builder.addRoute("0.0.0.0", 0)
+
+            // 🌐 DNS (MANDATORY)
+            builder.addDnsServer("1.1.1.1")
+            builder.addDnsServer("8.8.8.8")
+
+            // 🧠 USE ADDRESS FROM CONFIG (NO HARDCODE)
+            config.`interface`.addresses.forEach { inetNetwork ->
+                val cidr = inetNetwork.toString() // e.g. "10.0.0.2/32"
+                val parts = cidr.split("/")
+                val ip = parts[0]
+                val prefix = parts[1].toInt()
+
+                builder.addAddress(ip, prefix)
+            }
+
+
+            vpnInterface = builder.establish()
 
             if (vpnInterface == null) {
                 sendStatus("DOWN")
@@ -82,26 +107,22 @@ class SecureNestVpnService : VpnService() {
                 return START_NOT_STICKY
             }
 
-            val config = Config.parse(
-                ByteArrayInputStream(configString.toByteArray())
-            )
-
+            // ⏳ Small delay ensures interface is ready
             Handler(Looper.getMainLooper()).postDelayed({
-            try {
-                backend.setState(tunnel, Tunnel.State.UP, config)
-                vpnState = "UP"
-                sendStatus("UP")
+                try {
+                    backend.setState(tunnel, Tunnel.State.UP, config)
+                    vpnState = "UP"
+                    sendStatus("UP")
 
-                // ✅ START LIVE STATS HERE
-                statsHandler.post(statsRunnable)
+                    // 📊 Start live stats
+                    statsHandler.post(statsRunnable)
 
-            } catch (e: Exception) {
-                Log.e(TAG, "WireGuard failed: ${e.message}")
-                sendStatus("DOWN")
-                stopSelf()
-            }
-        }, 1000)
-
+                } catch (e: Exception) {
+                    Log.e(TAG, "WireGuard failed: ${e.message}")
+                    sendStatus("DOWN")
+                    stopSelf()
+                }
+            }, 800)
 
         } catch (e: Exception) {
             Log.e(TAG, "VPN error: ${e.message}")

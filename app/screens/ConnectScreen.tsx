@@ -21,8 +21,7 @@ import mobileAds, {
   AdEventType,
   BannerAd,
   BannerAdSize,
-  InterstitialAd,
-  TestIds
+  InterstitialAd
 } from 'react-native-google-mobile-ads';
 import { useAppSettings } from '../../src/hooks/useAppSettings';
 import { useAuth } from '../../src/hooks/useAuth';
@@ -52,8 +51,8 @@ type Server = {
 }
 
 export default function ConnectScreen() {
-  const interstitialUnitId = __DEV__ ? TestIds.INTERSTITIAL : 'ca-app-pub-1140863366083907/8985345010';
-  const bannerUnitId = __DEV__ ? TestIds.BANNER : 'ca-app-pub-1140863366083907/7616423023';
+  const interstitialUnitId = 'ca-app-pub-1140863366083907/8985345010';
+  const bannerUnitId = 'ca-app-pub-1140863366083907/7616423023';
   const interstitialRef = useRef<InterstitialAd | null>(null);
   const params = useLocalSearchParams<{ server?: string }>()
   const server: Server | null = useMemo(() => {
