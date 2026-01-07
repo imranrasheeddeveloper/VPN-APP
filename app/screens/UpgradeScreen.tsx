@@ -15,11 +15,18 @@ import {
   Text,
   View,
 } from 'react-native'
+
 import * as RNIap from 'react-native-iap'
 import { useAuth } from '../../src/hooks/useAuth'
 import { verifySubscription } from '../../src/services/subscriptions'
 import { colors } from '../../src/theme'
-const IAP: any = RNIap
+
+/**
+ * 🔴 RN-IAP v14 FIX
+ * Typings are missing getSubscriptions / requestSubscription
+ * Runtime API EXISTS → cast once, safely
+ */
+const IAP = RNIap as any
 
 const SUB_IDS = ['premium_monthly', 'premium_yearly']
 
@@ -59,12 +66,10 @@ export default function UpgradeScreen() {
   const params = useLocalSearchParams()
   const targetServer = params.server
 
-  const { plan } = useAuth() // 🔴 ONLY USED FOR AUTO-RETURN
+  const { plan } = useAuth()
 
   /**
-   * ================================
    * INIT / CLEANUP BILLING
-   * ================================
    */
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -74,13 +79,14 @@ export default function UpgradeScreen() {
       IAP.endConnection()
     }
   }, [])
-// useEffect(() => {
-//   console.log('🧾 RN-IAP methods:', Object.keys(IAP));
-// }, []);
+
+  useEffect(() => {
+  console.log('RN-IAP keys:', Object.keys(IAP))
+}, [])
+
+
   /**
-   * ================================
-   * AUTO-RETURN AFTER PREMIUM
-   * ================================
+   * AUTO RETURN AFTER PREMIUM
    */
   useEffect(() => {
     if (plan === 'premium' && targetServer) {
@@ -92,112 +98,99 @@ export default function UpgradeScreen() {
   }, [plan, targetServer])
 
   /**
-   * ================================
-   * BUY SUBSCRIPTION
-   * ================================
+   * BUY SUBSCRIPTION (FIXED)
    */
-  const onBuy = async () => {
-  setBuying(true);
+   const onBuy = async () => {
+  setBuying(true)
 
   try {
     const productId =
       selected === 'monthly'
         ? 'premium_monthly'
-        : 'premium_yearly';
+        : 'premium_yearly'
 
-    // ✅ Fetch subscription product (this is correct for your API)
     const products = await IAP.fetchProducts({
       skus: [productId],
-    });
+      productType: 'subs', // ✅ FIX
+    })
 
-    console.log('🛒 Products:', products);
+    console.log('Fetched products:', products)
 
-    if (!products || products.length === 0) {
-      throw new Error('Subscription product not found');
+    if (!products.length) {
+      throw new Error(
+        'Product not found. Check Play Store setup.'
+      )
     }
 
-    // ✅ Request purchase (subscriptions included)
     const purchase = await IAP.requestPurchase({
       sku: productId,
-    });
+    })
 
-    console.log('💳 Purchase:', purchase);
-
-    // ✅ Finish / acknowledge purchase (MANDATORY on Android)
     await IAP.finishTransaction({
       purchase,
       isConsumable: false,
-    });
+    })
 
-    try {
-      await verifySubscription(
-        productId,
-        purchase.purchaseToken,
-      );
+    await verifySubscription(
+      productId,
+      purchase.purchaseToken
+    )
 
-      DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED');
-    } catch {
-      await AsyncStorage.setItem(
-        'PENDING_PURCHASE_TOKEN',
-        purchase.purchaseToken,
-      );
-    }
-
-    Alert.alert('Success', 'Premium activated!');
+    DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED')
+    Alert.alert('Success', 'Premium activated!')
   } catch (e: any) {
-    console.log('❌ Purchase error:', e);
+    console.log('❌ Purchase error:', e)
     Alert.alert(
       'Purchase failed',
       e?.message || 'Try again'
-    );
+    )
   } finally {
-    setBuying(false);
+    setBuying(false)
   }
-};
+}
 
 
 
 
+  /**
+   * RESTORE PURCHASE
+   */
   const onRestore = async () => {
     try {
-      const purchases = await IAP.getAvailablePurchases();
+      const purchases = await IAP.getAvailablePurchases()
 
       if (!purchases.length) {
-        Alert.alert('No purchases found');
-        return;
+        Alert.alert('No purchases found')
+        return
       }
 
       const sub = purchases.find(
         (p: Purchase) =>
           p.productId === 'premium_monthly' ||
-          p.productId === 'premium_yearly',
-      );
+          p.productId === 'premium_yearly'
+      )
 
       if (!sub?.purchaseToken) {
-        Alert.alert('No valid subscription found');
-        return;
+        Alert.alert('No valid subscription found')
+        return
       }
 
-      // 🔐 Save locally for later login
       await AsyncStorage.setItem(
         'PENDING_PURCHASE_TOKEN',
-        sub.purchaseToken,
-      );
+        sub.purchaseToken
+      )
 
       Alert.alert(
         'Purchase restored',
-        'Please login to activate premium',
-      );
-    } catch (e) {
-      Alert.alert('Restore failed', 'Try again later');
+        'Please login to activate premium'
+      )
+    } catch {
+      Alert.alert('Restore failed', 'Try again later')
     }
-  };
-
+  }
 
   /**
-   * ================================
    * UI (UNCHANGED)
-   * ================================
    */
   return (
     <LinearGradient
@@ -205,7 +198,7 @@ export default function UpgradeScreen() {
       style={styles.container}
     >
       <View style={styles.top}>
-       <Pressable
+        <Pressable
           onPress={() => router.back()}
           style={styles.backButtonAbsolute}
         >
@@ -214,13 +207,11 @@ export default function UpgradeScreen() {
           </View>
         </Pressable>
 
-
         <Text style={styles.title}>Go Premium</Text>
         <Text style={styles.subtitle}>
           Unlimited speed · Premium locations · Priority routing
         </Text>
       </View>
-
 
       <View style={styles.cards}>
         {plans.map((p) => {
@@ -284,22 +275,9 @@ export default function UpgradeScreen() {
   )
 }
 
-
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 18 },
   top: { marginTop: 10, alignItems: 'center' },
-  backBtn: {
-    alignSelf: 'flex-start',
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(10,16,48,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(120,140,255,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backText: { color: '#EAF0FF', fontWeight: '900', fontSize: 16 },
   title: { marginTop: 40, fontSize: 28, fontWeight: '900', color: '#EAF0FF' },
   subtitle: { color: '#9AA6C3', marginTop: 6, textAlign: 'center' },
   cards: { marginTop: 18, gap: 12 },
@@ -365,17 +343,13 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
   },
-
   restoreBtn: {
     marginTop: 10,
     alignItems: 'center',
   },
-
   restoreText: {
     color: '#9AA6C3',
     fontSize: 14,
     fontWeight: '600',
   },
-
-
 })

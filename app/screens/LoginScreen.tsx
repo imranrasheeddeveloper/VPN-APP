@@ -1,4 +1,4 @@
-import { Feather, FontAwesome } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import * as AuthSession from 'expo-auth-session';
@@ -183,7 +183,7 @@ export default function LoginScreen() {
           <Text style={styles.btnText}>{loading ? 'Signing in...' : 'Login'}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.googleBtn}
           onPress={googleLogin}
           disabled={!googleRequest || loading}
@@ -191,7 +191,7 @@ export default function LoginScreen() {
          <FontAwesome name="google" size={18} color="#000" />
 
           <Text style={styles.googleText}>Continue with Google</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
         
 
         <TouchableOpacity onPress={() => router.push('/screens/RegisterScreen')} style={styles.footerLink}>

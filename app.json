@@ -2,7 +2,7 @@
   "expo": {
     "name": "SecureNestVPN",
     "slug": "secure-nest-vpn",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "securenestvpn",
@@ -20,7 +20,7 @@
       "bundleIdentifier": "com.securenest.vpn"
     },
     "android": {
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
