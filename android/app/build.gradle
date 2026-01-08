@@ -34,8 +34,8 @@ android {
         applicationId 'com.securenest.vpn'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "1.0.4"
+        versionCode 6
+        versionName "1.0.6"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -58,6 +58,13 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // These must be set before buildTypes can use them
+            storeFile file("keystore.jks") 
+            storePassword "ca10c0cb0585603682976dfca464fcb2"
+            keyAlias "c232595679a2778815a5dcbc7046b7d2"
+            keyPassword "2bc02bf908b315d74dfff813d2c90955"
+        }
     }
 
     buildTypes {
@@ -65,20 +72,17 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug
-            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
-            shrinkResources enableShrinkResources.toBoolean()
+            // This line will only work if signingConfigs.release was defined above!
+            signingConfig signingConfigs.release
+            
             minifyEnabled enableMinifyInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-            def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
-            crunchPngs enablePngCrunchInRelease.toBoolean()
         }
     }
 
     packagingOptions {
         jniLibs {
-            def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
-            useLegacyPackaging enableLegacyPackaging.toBoolean()
+            useLegacyPackaging = false
         }
         // ✅ FIX: Prevents duplicate library errors during build
         pickFirst 'lib/*/libcrypto.so'
@@ -110,9 +114,10 @@ dependencies {
 
     // ✅ FIX: Clean WireGuard implementation. 
     // The 'tunnel' library includes everything (backend, crypto, util) automatically.
-    implementation("com.wireguard.android:tunnel:1.0.20230706")
+    implementation("com.wireguard.android:tunnel:1.0.20260102")
     // ✅ FIX: Required for 'coreLibraryDesugaringEnabled true' above
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")    // implementation("com.android.tools:desugar_jdk_libs:2.1.5")  
+
 
     // Expo and React Native defaults
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
