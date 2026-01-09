@@ -16,6 +16,7 @@ import com.google.firebase.FirebaseApp
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
+import com.securenest.vpn.billing.BillingPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -26,6 +27,8 @@ class MainApplication : Application(), ReactApplication {
                 val packages = PackageList(this).packages.toMutableList()
                 // Remove 'new' - it doesn't exist in Kotlin!
                 packages.add(SecureNestVpnPackage())
+                packages.add(BillingPackage())
+
                 return packages
             }
 

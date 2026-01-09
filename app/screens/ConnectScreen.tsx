@@ -51,7 +51,7 @@ type Server = {
 }
 
 export default function ConnectScreen() {
-  const interstitialUnitId = 'ca-app-pub-1140863366083907/8985345010';
+  const interstitialUnitId = 'ca-app-pub-1140863366083907/7191743581';
   const bannerUnitId = 'ca-app-pub-1140863366083907/7616423023';
   const interstitialRef = useRef<InterstitialAd | null>(null);
   const params = useLocalSearchParams<{ server?: string }>()

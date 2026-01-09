@@ -3,7 +3,8 @@
     "production": {
       "android": {
         "buildType": "app-bundle"
-      }
+      },
+      "distribution": "store"
     }
   }
 }

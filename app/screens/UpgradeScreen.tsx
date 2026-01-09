@@ -1,34 +1,26 @@
 import { Feather } from '@expo/vector-icons'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
-import type { Purchase } from 'react-native-iap'
 
 import {
   Alert,
-  DeviceEventEmitter,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
 
-import * as RNIap from 'react-native-iap'
+import {
+  initBilling,
+  listenPurchase,
+  onBuyNative,
+} from '@/src/native/billing.native'
+
+import { verifySubscription } from '@/src/services/subscriptions'
 import { useAuth } from '../../src/hooks/useAuth'
-import { verifySubscription } from '../../src/services/subscriptions'
 import { colors } from '../../src/theme'
-
-/**
- * 🔴 RN-IAP v14 FIX
- * Typings are missing getSubscriptions / requestSubscription
- * Runtime API EXISTS → cast once, safely
- */
-const IAP = RNIap as any
-
-const SUB_IDS = ['premium_monthly', 'premium_yearly']
 
 type PlanKey = 'monthly' | 'yearly'
 type Plan = {
@@ -69,21 +61,30 @@ export default function UpgradeScreen() {
   const { plan } = useAuth()
 
   /**
-   * INIT / CLEANUP BILLING
+   * 🔐 INIT NATIVE BILLING + LISTENER
    */
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      IAP.initConnection()
-    }
-    return () => {
-      IAP.endConnection()
-    }
+    initBilling()
+
+    const sub = listenPurchase(async (purchase) => {
+      try {
+        await verifySubscription(
+          purchase.productId,
+          purchase.purchaseToken
+        )
+
+        Alert.alert('Success', 'Premium activated!')
+      } catch (e) {
+        Alert.alert(
+          'Verification failed',
+          'Payment succeeded but verification failed. Please contact support.'
+        )
+      }
+    })
+
+
+    return () => sub.remove()
   }, [])
-
-  useEffect(() => {
-  console.log('RN-IAP keys:', Object.keys(IAP))
-}, [])
-
 
   /**
    * AUTO RETURN AFTER PREMIUM
@@ -98,94 +99,22 @@ export default function UpgradeScreen() {
   }, [plan, targetServer])
 
   /**
-   * BUY SUBSCRIPTION (FIXED)
+   * BUY SUBSCRIPTION (PURE NATIVE)
    */
-   const onBuy = async () => {
-  setBuying(true)
-
-  try {
-    const productId =
-      selected === 'monthly'
-        ? 'premium_monthly'
-        : 'premium_yearly'
-
-    const products = await IAP.fetchProducts({
-      skus: [productId],
-      productType: 'subs', // ✅ FIX
-    })
-
-    console.log('Fetched products:', products)
-
-    if (!products.length) {
-      throw new Error(
-        'Product not found. Check Play Store setup.'
-      )
-    }
-
-    const purchase = await IAP.requestPurchase({
-      sku: productId,
-    })
-
-    await IAP.finishTransaction({
-      purchase,
-      isConsumable: false,
-    })
-
-    await verifySubscription(
-      productId,
-      purchase.purchaseToken
-    )
-
-    DeviceEventEmitter.emit('AUTH_TOKEN_CHANGED')
-    Alert.alert('Success', 'Premium activated!')
-  } catch (e: any) {
-    console.log('❌ Purchase error:', e)
-    Alert.alert(
-      'Purchase failed',
-      e?.message || 'Try again'
-    )
-  } finally {
-    setBuying(false)
-  }
-}
-
-
-
-
-  /**
-   * RESTORE PURCHASE
-   */
-  const onRestore = async () => {
+  const onBuy = async () => {
     try {
-      const purchases = await IAP.getAvailablePurchases()
+      setBuying(true)
 
-      if (!purchases.length) {
-        Alert.alert('No purchases found')
-        return
-      }
+      const productId =
+        selected === 'monthly'
+          ? 'premium_monthly'
+          : 'premium_yearly'
 
-      const sub = purchases.find(
-        (p: Purchase) =>
-          p.productId === 'premium_monthly' ||
-          p.productId === 'premium_yearly'
-      )
-
-      if (!sub?.purchaseToken) {
-        Alert.alert('No valid subscription found')
-        return
-      }
-
-      await AsyncStorage.setItem(
-        'PENDING_PURCHASE_TOKEN',
-        sub.purchaseToken
-      )
-
-      Alert.alert(
-        'Purchase restored',
-        'Please login to activate premium'
-      )
+      await onBuyNative(productId)
     } catch {
-      Alert.alert('Restore failed', 'Try again later')
+      Alert.alert('Purchase failed', 'Please try again')
+    } finally {
+      setBuying(false)
     }
   }
 
@@ -267,13 +196,13 @@ export default function UpgradeScreen() {
       <Text style={styles.legal}>
         Subscription renews automatically unless canceled 24 hours before renewal.
       </Text>
-
-      <Pressable onPress={onRestore} style={styles.restoreBtn}>
-        <Text style={styles.restoreText}>Restore Purchase</Text>
-      </Pressable>
     </LinearGradient>
   )
 }
+
+/* ===========================
+   STYLES — UNCHANGED
+=========================== */
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 18 },
@@ -342,14 +271,5 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
-  },
-  restoreBtn: {
-    marginTop: 10,
-    alignItems: 'center',
-  },
-  restoreText: {
-    color: '#9AA6C3',
-    fontSize: 14,
-    fontWeight: '600',
   },
 })
