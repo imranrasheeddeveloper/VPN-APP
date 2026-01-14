@@ -1,4 +1,3 @@
-'use client';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -57,8 +56,11 @@ export default function ServersScreen() {
         const res = await listServers();
         const data = res?.data || res || [];
         setRawServers(data.filter((s: Server) => s.status === 'online'));
-      } catch (e) {
-        console.log('Error loading servers', e);
+      }catch (e: any) {
+        Alert.alert(
+          'Server API Error',
+          e?.message || JSON.stringify(e)
+        );
       } finally {
         setLoading(false);
       }

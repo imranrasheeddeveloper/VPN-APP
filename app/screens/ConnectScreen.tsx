@@ -17,12 +17,11 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import mobileAds, {
-  AdEventType,
+import {
   BannerAd,
   BannerAdSize,
-  InterstitialAd
 } from 'react-native-google-mobile-ads';
+import { interstitialManager } from '../../src/ads/InterstitialManager';
 import { useAppSettings } from '../../src/hooks/useAppSettings';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useVpnHeartbeat } from '../../src/hooks/useVpnHeartbeat';
@@ -53,7 +52,6 @@ type Server = {
 export default function ConnectScreen() {
   const interstitialUnitId = 'ca-app-pub-1140863366083907/7191743581';
   const bannerUnitId = 'ca-app-pub-1140863366083907/7616423023';
-  const interstitialRef = useRef<InterstitialAd | null>(null);
   const params = useLocalSearchParams<{ server?: string }>()
   const server: Server | null = useMemo(() => {
     try {
@@ -62,6 +60,8 @@ export default function ConnectScreen() {
       return null
     }
   }, [params.server])
+  const screenAdShownRef = useRef(false);
+
   const { isInAppPurchaseEnabled } = useAppSettings();
   const [connected, setConnected] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -72,8 +72,6 @@ export default function ConnectScreen() {
   const initRef = useRef(false);
   const isUserConnectingRef = useRef(false);
   const connectInProgressRef = useRef(false);
-  const [adLoaded, setAdLoaded] = useState(false);
-  const [isAdInitialized, setIsAdInitialized] = useState(false);
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 2;
   const vpnConfigRef = useRef<string | null>(null);
@@ -103,55 +101,12 @@ export default function ConnectScreen() {
     }).start()
   }, [connected, glow])
 
-
   useEffect(() => {
-  let unsubscribe: (() => void) | undefined;
-  let isMounted = true;
-
-  const initializeAds = async () => {
-    try {
-      await mobileAds().initialize();
-      
-      if (!isMounted) return;
-      
-      setIsAdInitialized(true);
-
-      const ad = InterstitialAd.createForAdRequest(interstitialUnitId, {
-        requestNonPersonalizedAdsOnly: false,
-      });
-      
-      interstitialRef.current = ad;
-
-      unsubscribe = ad.addAdEventListener(AdEventType.LOADED, () => {
-        if (isMounted) {
-          setAdLoaded(true);
-        }
-      });
-
-      // Add error listener
-      const errorListener = ad.addAdEventListener(AdEventType.ERROR, (error) => {
-        console.log('Ad failed to load:', error);
-        if (isMounted) {
-          setAdLoaded(false);
-        }
-      });
-
-      ad.load();
-
-      return errorListener;
-    } catch (error) {
-      console.error('Failed to initialize ads:', error);
-    }
-  };
-
-  const errorListener = initializeAds();
-
-  return () => {
-    isMounted = false;
-    unsubscribe?.();
-    errorListener?.then(listener => listener?.());
-  };
-}, [interstitialUnitId]);
+  if (plan !== 'premium' && !screenAdShownRef.current) {
+    const shown = interstitialManager.show();
+    if (shown) screenAdShownRef.current = true;
+  }
+}, [plan]);
 
   /* ================= NAVIGATION ================= */
   const changeServer = () => {
@@ -355,12 +310,10 @@ export default function ConnectScreen() {
  
   /* ================= CONNECT ACTION ================= */
   const onConnect = async () => {
-    if (interstitialRef.current && adLoaded && plan !== 'premium') {
-      interstitialRef.current.show();
-      setAdLoaded(false);
-      interstitialRef.current.load();
+    
+    if (plan !== 'premium') {
+      interstitialManager.show(); // fire-and-forget
     }
-
     if (!server) return;
     connectInProgressRef.current = true;
     isUserConnectingRef.current = true;
@@ -593,14 +546,15 @@ export default function ConnectScreen() {
         </View>
       </View>
 
-      {plan !== 'premium' && isAdInitialized && (
-        <View style={{ alignItems: 'center', marginBottom: 10 }}>
-          <BannerAd
-          unitId={bannerUnitId}
-          size={BannerAdSize.BANNER}
-        />
-        </View>
-      )}
+      {plan !== 'premium' && (
+            <View style={{ alignItems: 'center', marginBottom: 10 }}>
+              <BannerAd
+                unitId={bannerUnitId}
+                size={BannerAdSize.BANNER}
+              />
+            </View>
+          )}
+
 
       <TouchableOpacity
         disabled={loading || checking}
